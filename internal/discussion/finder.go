@@ -89,8 +89,9 @@ func (f *Finder) Find(ctx context.Context, entryURL string) DiscussionResponse {
 	f.inflight[normalized] = entry
 	f.inflightMu.Unlock()
 
-	// Perform the actual lookup.
-	result, allFailed := f.fetchAll(ctx, entryURL)
+	// Perform the actual lookup using the normalized URL (strips fragments,
+	// tracking params, etc.) so providers search for the canonical URL.
+	result, allFailed := f.fetchAll(ctx, normalized)
 
 	// Cache the result with an appropriate TTL:
 	// - resultTTL (30m) if we got results
@@ -105,6 +106,11 @@ func (f *Finder) Find(ctx context.Context, entryURL string) DiscussionResponse {
 		}
 	}
 	f.cache.set(normalized, result, ttl)
+
+	// Ensure non-nil slice so JSON encodes as [] not null.
+	if result == nil {
+		result = []DiscussionLink{}
+	}
 
 	entry.result = result
 	close(entry.done)
