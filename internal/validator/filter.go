@@ -12,7 +12,7 @@ import (
 
 func isValidFilterRules(filterEntryRules string, filterType string) *locale.LocalizedError {
 	// Valid Format: FieldName=RegEx\nFieldName=RegEx...
-	fieldNames := []string{"EntryTitle", "EntryURL", "EntryCommentsURL", "EntryContent", "EntryAuthor", "EntryTag", "EntryDate"}
+	fieldNames := []string{"EntryTitle", "EntryURL", "EntryCommentsURL", "EntryContent", "EntryAuthor", "EntryTag", "EntryDate", "EntryReadingTime"}
 
 	rules := strings.Split(filterEntryRules, "\n")
 	for i, rule := range rules {
@@ -32,6 +32,11 @@ func isValidFilterRules(filterEntryRules string, filterType string) *locale.Loca
 
 		if fieldRegEx == "" {
 			return locale.NewLocalizedError("error.settings_"+filterType+"_rule_regex_required", i+1)
+		}
+
+		// EntryReadingTime uses comparison operators (e.g. ">2", "<=5"), not regex.
+		if fieldName == "EntryReadingTime" {
+			continue
 		}
 
 		// Check if provided pattern is a valid RegEx
