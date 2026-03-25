@@ -171,6 +171,8 @@ func matchesRule(rule filterRule, entry *model.Entry) bool {
 		return match
 	case "EntryTag":
 		return containsRegexPattern(rule.Value, entry.Tags)
+	case "EntryReadingTime":
+		return isReadingTimeMatchingPattern(rule.Value, entry.ReadingTime)
 	}
 
 	return false
@@ -252,4 +254,43 @@ func parseDuration(duration string) (time.Duration, error) {
 
 	// For other durations (hours, minutes, seconds), use Go's built-in parser
 	return time.ParseDuration(duration)
+}
+
+func isReadingTimeMatchingPattern(pattern string, readingTime int) bool {
+	var operator string
+	var valueStr string
+
+	for _, op := range []string{">=", "<=", "!=", ">", "<", "="} {
+		if strings.HasPrefix(pattern, op) {
+			operator = op
+			valueStr = strings.TrimSpace(pattern[len(op):])
+			break
+		}
+	}
+
+	if operator == "" {
+		return false
+	}
+
+	value, err := strconv.Atoi(valueStr)
+	if err != nil {
+		return false
+	}
+
+	switch operator {
+	case ">":
+		return readingTime > value
+	case "<":
+		return readingTime < value
+	case ">=":
+		return readingTime >= value
+	case "<=":
+		return readingTime <= value
+	case "=":
+		return readingTime == value
+	case "!=":
+		return readingTime != value
+	}
+
+	return false
 }

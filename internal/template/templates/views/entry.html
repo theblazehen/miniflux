@@ -223,6 +223,12 @@
             </span>
             {{ end }}
         </div>
+        {{ if .user }}
+        <div class="entry-discussions"
+             data-discussions-url="{{ routePath "/entry/%d/discussions" .entry.ID }}"
+             style="display:none">
+        </div>
+        {{ end }}
     </header>
 </section>
 {{ end }}

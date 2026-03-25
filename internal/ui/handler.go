@@ -6,6 +6,7 @@ package ui // import "miniflux.app/v2/internal/ui"
 import (
 	"fmt"
 
+	"miniflux.app/v2/internal/discussion"
 	"miniflux.app/v2/internal/storage"
 	"miniflux.app/v2/internal/template"
 	"miniflux.app/v2/internal/ui/static"
@@ -13,10 +14,11 @@ import (
 )
 
 type handler struct {
-	basePath string
-	store    *storage.Storage
-	tpl      *template.Engine
-	pool     *worker.Pool
+	basePath    string
+	store       *storage.Storage
+	tpl         *template.Engine
+	pool        *worker.Pool
+	discussions *discussion.Finder
 }
 
 func (h *handler) routePath(format string, args ...any) string {

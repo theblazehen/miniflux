@@ -14,7 +14,7 @@ import (
 )
 
 func TestNewHandlerHandlesOptionsRequests(t *testing.T) {
-	handler := NewHandler(nil, nil)
+	handler := NewHandler(nil, nil, nil)
 
 	r := httptest.NewRequest(http.MethodOptions, "/v1/users", nil)
 	w := httptest.NewRecorder()
@@ -103,7 +103,7 @@ func TestNewHandlerSupportsBasePathStripping(t *testing.T) {
 
 	for _, scenario := range scenarios {
 		t.Run(scenario.name, func(t *testing.T) {
-			handler := http.StripPrefix(scenario.prefix, NewHandler(nil, nil))
+			handler := http.StripPrefix(scenario.prefix, NewHandler(nil, nil, nil))
 
 			r := httptest.NewRequest(http.MethodOptions, scenario.path, nil)
 			w := httptest.NewRecorder()

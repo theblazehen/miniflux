@@ -7,6 +7,7 @@ import (
 	"net/http"
 
 	"miniflux.app/v2/internal/config"
+	"miniflux.app/v2/internal/discussion"
 	"miniflux.app/v2/internal/storage"
 	"miniflux.app/v2/internal/template"
 	"miniflux.app/v2/internal/worker"
@@ -14,14 +15,14 @@ import (
 
 // Serve returns an http.Handler that serves the user interface.
 // The returned handler expects the base path to be stripped from the request URL.
-func Serve(store *storage.Storage, pool *worker.Pool) http.Handler {
+func Serve(store *storage.Storage, pool *worker.Pool, discussions *discussion.Finder) http.Handler {
 	basePath := config.Opts.BasePath()
 	middleware := newMiddleware(basePath, store)
 
 	templateEngine := template.NewEngine(basePath)
 	templateEngine.ParseTemplates()
 
-	handler := &handler{basePath, store, templateEngine, pool}
+	handler := &handler{basePath, store, templateEngine, pool, discussions}
 
 	mux := http.NewServeMux()
 
@@ -102,6 +103,7 @@ func Serve(store *storage.Storage, pool *worker.Pool) http.Handler {
 	mux.HandleFunc("POST /entry/enclosure/{enclosureID}/save-progression", handler.saveEnclosureProgression)
 	mux.HandleFunc("POST /entry/download/{entryID}", handler.fetchContent)
 	mux.HandleFunc("POST /entry/star/{entryID}", handler.toggleStarred)
+	mux.HandleFunc("GET /entry/{entryID}/discussions", handler.fetchDiscussions)
 
 	// Media proxy.
 	mux.HandleFunc("GET /proxy/{encodedDigest}/{encodedURL}", handler.mediaProxy)

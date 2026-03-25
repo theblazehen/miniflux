@@ -37,6 +37,18 @@ function sendPOSTRequest(url, body = null) {
 }
 
 /**
+ * Send a GET request to the specified URL.
+ *
+ * @param {string} url - The URL to send the request to.
+ * @returns {Promise<Response>} The response from the fetch request.
+ */
+function sendGETRequest(url) {
+    return fetch(url, {
+        headers: { "Accept": "application/json" }
+    });
+}
+
+/**
  * Open a new tab with the given URL.
  *
  * @param {string} url
@@ -1267,6 +1279,60 @@ function initializeClickHandlers() {
     }, true);
 }
 
+/**
+ * Fetch and display discussion links for the current entry.
+ * Discussions are loaded on-demand and rendered below the entry metadata.
+ */
+function initializeDiscussionLinks() {
+    const container = document.querySelector(".entry-discussions[data-discussions-url]");
+    if (!container) return;
+
+    sendGETRequest(container.dataset.discussionsUrl)
+        .then(response => response.ok ? response.json() : null)
+        .then(data => {
+            if (!data || !data.discussions || data.discussions.length === 0) return;
+
+            // Deduplicate against existing CommentsURL link.
+            const existingCommentsLink = document.querySelector("a[data-comments-link]");
+            const existingCommentsHref = existingCommentsLink ? existingCommentsLink.href : "";
+
+            const discussions = data.discussions.filter(d => {
+                if (!existingCommentsHref) return true;
+                // Skip if the discussion URL is essentially the same as CommentsURL.
+                return !d.url.includes(existingCommentsHref) && !existingCommentsHref.includes(d.url);
+            });
+
+            if (discussions.length === 0) return;
+
+            container.style.display = "";
+
+            const sourceNames = {
+                hackernews: "HN",
+                lobsters: "Lobsters"
+            };
+
+            const parts = discussions.map(d => {
+                const name = d.source === "reddit" && d.community
+                    ? `r/${d.community}`
+                    : (sourceNames[d.source] || d.source);
+                const a = document.createElement("a");
+                a.href = d.url;
+                a.target = "_blank";
+                a.rel = "noopener";
+                a.textContent = `${name} (${d.comments})`;
+                return a;
+            });
+
+            parts.forEach((a, i) => {
+                if (i > 0) {
+                    container.appendChild(document.createTextNode(" \u00b7 "));
+                }
+                container.appendChild(a);
+            });
+        })
+        .catch(() => {}); // Silent failure — discussions are best-effort.
+}
+
 // Initialize application handlers
 initializeMainMenuHandlers();
 initializeFormHandlers();
@@ -1276,6 +1342,7 @@ initializeKeyboardShortcuts();
 initializeTouchHandler();
 initializeClickHandlers();
 initializeServiceWorker();
+initializeDiscussionLinks();
 
 // Reload the page if it was restored from the back-forward cache and mark entries as read is enabled.
 window.addEventListener("pageshow", (event) => {

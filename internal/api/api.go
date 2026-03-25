@@ -6,19 +6,21 @@ package api // import "miniflux.app/v2/internal/api"
 import (
 	"net/http"
 
+	"miniflux.app/v2/internal/discussion"
 	"miniflux.app/v2/internal/storage"
 	"miniflux.app/v2/internal/worker"
 )
 
 type handler struct {
-	store *storage.Storage
-	pool  *worker.Pool
+	store       *storage.Storage
+	pool        *worker.Pool
+	discussions *discussion.Finder
 }
 
 // NewHandler returns an http.Handler that handles API v1 calls.
 // The returned handler expects the base path to be stripped from the request URL.
-func NewHandler(store *storage.Storage, pool *worker.Pool) http.Handler {
-	handler := &handler{store: store, pool: pool}
+func NewHandler(store *storage.Storage, pool *worker.Pool, discussions *discussion.Finder) http.Handler {
+	handler := &handler{store: store, pool: pool, discussions: discussions}
 	middleware := newMiddleware(store)
 
 	mux := http.NewServeMux()
@@ -62,6 +64,7 @@ func NewHandler(store *storage.Storage, pool *worker.Pool) http.Handler {
 	mux.HandleFunc("PUT /v1/entries/{entryID}/star", handler.toggleStarredHandler)
 	mux.HandleFunc("POST /v1/entries/{entryID}/save", handler.saveEntryHandler)
 	mux.HandleFunc("GET /v1/entries/{entryID}/fetch-content", handler.fetchContentHandler)
+	mux.HandleFunc("GET /v1/entries/{entryID}/discussions", handler.getEntryDiscussionsHandler)
 	mux.HandleFunc("PUT /v1/flush-history", handler.flushHistoryHandler)
 	mux.HandleFunc("DELETE /v1/flush-history", handler.flushHistoryHandler)
 	mux.HandleFunc("GET /v1/icons/{iconID}", handler.getIconByIconIDHandler)

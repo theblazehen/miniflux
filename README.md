@@ -1,3 +1,23 @@
+Miniflux 2 (theblazehen fork)
+=============================
+
+This is a fork of [miniflux/v2](https://github.com/miniflux/v2) with additional features.
+
+Docker: `ghcr.io/theblazehen/miniflux:main`
+
+### Fork additions
+
+- **EntryReadingTime filter rule** — Block or allow entries by reading time in Entry Block/Allow Rules.  
+  Syntax: `EntryReadingTime=>2`, `EntryReadingTime=<5`, `EntryReadingTime=>=10`, etc. Value is in minutes.
+
+- **On-demand discussion links** — Entry detail pages show links to HN and Reddit discussions (with comment counts) when available.  
+  Also exposed via API: `GET /v1/entries/{entryID}/discussions` for third-party clients.  
+  Results are cached server-side (30min). No database changes required.
+
+---
+
+*Upstream README follows:*
+
 Miniflux 2
 ==========
 

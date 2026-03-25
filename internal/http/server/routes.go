@@ -8,6 +8,7 @@ import (
 
 	"miniflux.app/v2/internal/api"
 	"miniflux.app/v2/internal/config"
+	"miniflux.app/v2/internal/discussion"
 	"miniflux.app/v2/internal/fever"
 	"miniflux.app/v2/internal/googlereader"
 	"miniflux.app/v2/internal/storage"
@@ -17,6 +18,7 @@ import (
 
 func newRouter(store *storage.Storage, pool *worker.Pool) http.Handler {
 	readinessProbe := newReadinessProbe(store)
+	discussionFinder := discussion.NewFinder()
 
 	// Application routes served under the base path.
 	appMux := http.NewServeMux()
@@ -34,7 +36,7 @@ func newRouter(store *storage.Storage, pool *worker.Pool) http.Handler {
 
 	// REST API routing.
 	if config.Opts.HasAPI() {
-		appMux.Handle("/v1/", api.NewHandler(store, pool))
+		appMux.Handle("/v1/", api.NewHandler(store, pool, discussionFinder))
 	}
 
 	// Metrics endpoint.
@@ -43,7 +45,7 @@ func newRouter(store *storage.Storage, pool *worker.Pool) http.Handler {
 	}
 
 	// UI routing (catch-all).
-	appMux.Handle("/", ui.Serve(store, pool))
+	appMux.Handle("/", ui.Serve(store, pool, discussionFinder))
 
 	// Apply shared middleware.
 	var appHandler http.Handler = appMux

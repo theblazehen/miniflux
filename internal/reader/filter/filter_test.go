@@ -21,6 +21,7 @@ func createTestEntry() *model.Entry {
 		Author:      "Test Author",
 		Date:        time.Now(),
 		Tags:        []string{"golang", "testing", "miniflux"},
+		ReadingTime: 5,
 	}
 }
 
@@ -623,6 +624,36 @@ func TestMatchesRule(t *testing.T) {
 		{
 			name:     "EntryDate not future",
 			rule:     filterRule{Type: "EntryDate", Value: "future"},
+			entry:    entry,
+			expected: false,
+		},
+		{
+			name:     "EntryReadingTime greater than - match",
+			rule:     filterRule{Type: "EntryReadingTime", Value: ">2"},
+			entry:    entry,
+			expected: true,
+		},
+		{
+			name:     "EntryReadingTime greater than - no match",
+			rule:     filterRule{Type: "EntryReadingTime", Value: ">10"},
+			entry:    entry,
+			expected: false,
+		},
+		{
+			name:     "EntryReadingTime less than - match",
+			rule:     filterRule{Type: "EntryReadingTime", Value: "<10"},
+			entry:    entry,
+			expected: true,
+		},
+		{
+			name:     "EntryReadingTime equal - match",
+			rule:     filterRule{Type: "EntryReadingTime", Value: "=5"},
+			entry:    entry,
+			expected: true,
+		},
+		{
+			name:     "EntryReadingTime equal - no match",
+			rule:     filterRule{Type: "EntryReadingTime", Value: "=3"},
 			entry:    entry,
 			expected: false,
 		},
@@ -1351,6 +1382,115 @@ func TestParseDurationWithVariousFormats(t *testing.T) {
 			}
 			if !tt.expectError && result != tt.expected {
 				t.Errorf("parseDuration() = %v, expected %v", result, tt.expected)
+			}
+		})
+	}
+}
+
+func TestIsReadingTimeMatchingPattern(t *testing.T) {
+	tests := []struct {
+		name        string
+		pattern     string
+		readingTime int
+		expected    bool
+	}{
+		{
+			name:        "greater than - match",
+			pattern:     ">2",
+			readingTime: 5,
+			expected:    true,
+		},
+		{
+			name:        "greater than - no match",
+			pattern:     ">10",
+			readingTime: 5,
+			expected:    false,
+		},
+		{
+			name:        "greater than - boundary",
+			pattern:     ">5",
+			readingTime: 5,
+			expected:    false,
+		},
+		{
+			name:        "less than - match",
+			pattern:     "<10",
+			readingTime: 5,
+			expected:    true,
+		},
+		{
+			name:        "less than - no match",
+			pattern:     "<3",
+			readingTime: 5,
+			expected:    false,
+		},
+		{
+			name:        "greater than or equal - boundary match",
+			pattern:     ">=5",
+			readingTime: 5,
+			expected:    true,
+		},
+		{
+			name:        "less than or equal - boundary match",
+			pattern:     "<=5",
+			readingTime: 5,
+			expected:    true,
+		},
+		{
+			name:        "equal - match",
+			pattern:     "=5",
+			readingTime: 5,
+			expected:    true,
+		},
+		{
+			name:        "equal - no match",
+			pattern:     "=3",
+			readingTime: 5,
+			expected:    false,
+		},
+		{
+			name:        "not equal - match",
+			pattern:     "!=3",
+			readingTime: 5,
+			expected:    true,
+		},
+		{
+			name:        "not equal - no match",
+			pattern:     "!=5",
+			readingTime: 5,
+			expected:    false,
+		},
+		{
+			name:        "invalid pattern - no operator",
+			pattern:     "5",
+			readingTime: 5,
+			expected:    false,
+		},
+		{
+			name:        "invalid pattern - non-numeric value",
+			pattern:     ">abc",
+			readingTime: 5,
+			expected:    false,
+		},
+		{
+			name:        "zero reading time",
+			pattern:     "=0",
+			readingTime: 0,
+			expected:    true,
+		},
+		{
+			name:        "with whitespace after operator",
+			pattern:     "> 2",
+			readingTime: 5,
+			expected:    true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := isReadingTimeMatchingPattern(tt.pattern, tt.readingTime)
+			if result != tt.expected {
+				t.Errorf("isReadingTimeMatchingPattern(%q, %d) = %v, expected %v", tt.pattern, tt.readingTime, result, tt.expected)
 			}
 		})
 	}
