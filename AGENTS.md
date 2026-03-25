@@ -20,6 +20,7 @@ This is a fork of [miniflux/v2](https://github.com/miniflux/v2) maintained at [t
 - **UI endpoint**: `GET /entry/{entryID}/discussions` — same response, used by JS
 - **Providers**: HN (Algolia API), Reddit (search.json). Lobsters code exists but is disabled (requires auth).
 - **Caching**: In-memory TTL cache (30min results, 15min empty, 5min error). Singleflight dedup.
+- **URL normalization**: Entry URLs are normalized (strip fragment, lowercase, strip `utm_*`) before querying providers. RSS feeds often add fragments like `#atom-everything` that don't appear on HN/Reddit.
 - **UI rendering**: Entry detail page, below date/reading time. JS in `app.js` (`initializeDiscussionLinks()`).
 - **Template**: `internal/template/templates/views/entry.html` — `div.entry-discussions`
 - **Wiring**: `Finder` singleton created in `internal/http/server/routes.go`, injected into both API and UI handlers.
