@@ -1280,57 +1280,56 @@ function initializeClickHandlers() {
 }
 
 /**
- * Fetch and display discussion links for the current entry.
- * Discussions are loaded on-demand and rendered below the entry metadata.
+ * Fetch and display discussion links for entries.
+ * Works in both list view (multiple entries) and detail view (single entry).
+ * Discussion links appear inline in the action icons bar next to read/star/external link.
  */
 function initializeDiscussionLinks() {
-    const container = document.querySelector(".entry-discussions[data-discussions-url]");
-    if (!container) return;
+    const containers = document.querySelectorAll("li.item-meta-icons-discussions[data-discussions-url]");
+    if (containers.length === 0) return;
 
-    sendGETRequest(container.dataset.discussionsUrl)
-        .then(response => response.ok ? response.json() : null)
-        .then(data => {
-            if (!data || !data.discussions || data.discussions.length === 0) return;
+    const sourceNames = {
+        hackernews: "HN",
+        lobsters: "Lobsters"
+    };
 
-            // Deduplicate against existing CommentsURL link.
-            const existingCommentsLink = document.querySelector("a[data-comments-link]");
-            const existingCommentsHref = existingCommentsLink ? existingCommentsLink.href : "";
+    containers.forEach(container => {
+        // Find the closest CommentsURL link for dedup (within the same entry's action bar).
+        const parent = container.closest("ul");
+        const existingCommentsLink = parent ? parent.querySelector("a[data-comments-link]") : null;
+        const existingCommentsHref = existingCommentsLink ? existingCommentsLink.href : "";
 
-            const discussions = data.discussions.filter(d => {
-                if (!existingCommentsHref) return true;
-                // Skip if the discussion URL is essentially the same as CommentsURL.
-                return !d.url.includes(existingCommentsHref) && !existingCommentsHref.includes(d.url);
-            });
+        sendGETRequest(container.dataset.discussionsUrl)
+            .then(response => response.ok ? response.json() : null)
+            .then(data => {
+                if (!data || !data.discussions || data.discussions.length === 0) return;
 
-            if (discussions.length === 0) return;
+                const discussions = data.discussions.filter(d => {
+                    if (!existingCommentsHref) return true;
+                    return !d.url.includes(existingCommentsHref) && !existingCommentsHref.includes(d.url);
+                });
 
-            container.style.display = "";
+                if (discussions.length === 0) return;
 
-            const sourceNames = {
-                hackernews: "HN",
-                lobsters: "Lobsters"
-            };
+                container.style.display = "";
 
-            const parts = discussions.map(d => {
-                const name = d.source === "reddit" && d.community
-                    ? `r/${d.community}`
-                    : (sourceNames[d.source] || d.source);
-                const a = document.createElement("a");
-                a.href = d.url;
-                a.target = "_blank";
-                a.rel = "noopener";
-                a.textContent = `${name} (${d.comments})`;
-                return a;
-            });
-
-            parts.forEach((a, i) => {
-                if (i > 0) {
-                    container.appendChild(document.createTextNode(" \u00b7 "));
-                }
-                container.appendChild(a);
-            });
-        })
-        .catch(() => {}); // Silent failure — discussions are best-effort.
+                discussions.forEach((d, i) => {
+                    const name = d.source === "reddit" && d.community
+                        ? `r/${d.community}`
+                        : (sourceNames[d.source] || d.source);
+                    const a = document.createElement("a");
+                    a.href = d.url;
+                    a.target = "_blank";
+                    a.rel = "noopener";
+                    a.textContent = `${name} (${d.comments})`;
+                    if (i > 0) {
+                        container.appendChild(document.createTextNode(" · "));
+                    }
+                    container.appendChild(a);
+                });
+            })
+            .catch(() => {}); // Silent failure — discussions are best-effort.
+    });
 }
 
 // Initialize application handlers

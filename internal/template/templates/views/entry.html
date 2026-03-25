@@ -135,6 +135,7 @@
                         >{{ icon "comment" }}<span class="icon-label">{{ t "entry.comments.label" }}</span></a>
                 </li>
                 {{ end }}
+                <li class="item-meta-icons-discussions" data-discussions-url="{{ routePath "/entry/%d/discussions" .entry.ID }}" style="display:none"></li>
             </ul>
         </div>
         {{ end }}
@@ -223,12 +224,6 @@
             </span>
             {{ end }}
         </div>
-        {{ if .user }}
-        <div class="entry-discussions"
-             data-discussions-url="{{ routePath "/entry/%d/discussions" .entry.ID }}"
-             style="display:none">
-        </div>
-        {{ end }}
     </header>
 </section>
 {{ end }}
