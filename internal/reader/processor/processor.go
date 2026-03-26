@@ -166,6 +166,20 @@ func ProcessFeedEntries(store *storage.Storage, feed *model.Feed, userID int64, 
 
 		updateEntryReadingTime(store, feed, entry, entryIsNew, user)
 
+		// Re-run filters after reading time is known so that EntryReadingTime rules work.
+		if filter.IsBlockedEntry(blockRules, allowRules, feed, entry) {
+			slog.Debug("Entry is blocked by filter rules",
+				slog.Int64("user_id", user.ID),
+				slog.String("entry_url", entry.URL),
+				slog.String("entry_hash", entry.Hash),
+				slog.String("entry_title", entry.Title),
+				slog.Int64("feed_id", feed.ID),
+				slog.String("feed_url", feed.FeedURL),
+				slog.String("filter_stage", "after_reading_time"),
+			)
+			continue
+		}
+
 		filteredEntries = append(filteredEntries, entry)
 	}
 
