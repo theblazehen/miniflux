@@ -136,7 +136,7 @@
                 </li>
                 {{ end }}
                 <li>
-                    <a href="https://news.ycombinator.com/submitlink{{ queryString (dict "u" .entry.URL "t" .entry.Title) }}"
+                    <a href="https://news.ycombinator.com/submitlink{{ queryStringPercentEncoded (dict "u" .entry.URL "t" .entry.Title) }}"
                         class="page-link"
                         title="{{ t "entry.hn_submit.title" }}"
                         {{ if $.user.OpenExternalLinksInNewTab }}target="_blank"{{ else }}rel="noopener"{{ end }}

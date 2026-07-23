@@ -241,6 +241,24 @@ func TestQueryString(t *testing.T) {
 	}
 }
 
+func TestQueryStringPercentEncoded(t *testing.T) {
+	params, err := dict("u", "https://example.org/an article", "t", "An article title")
+	if err != nil {
+		t.Fatalf(`The dict should be valid: %v`, err)
+	}
+
+	got := (&funcMap{}).Map()["queryStringPercentEncoded"].(func(map[string]any) string)(params)
+	if strings.Contains(got, "+") {
+		t.Fatalf(`Expected spaces to be encoded as %%20, got %q`, got)
+	}
+	if !strings.Contains(got, "t=An%20article%20title") {
+		t.Fatalf(`Expected title spaces to be encoded as %%20, got %q`, got)
+	}
+	if !strings.Contains(got, "u=https%3A%2F%2Fexample.org%2Fan%20article") {
+		t.Fatalf(`Expected URL spaces to be encoded as %%20, got %q`, got)
+	}
+}
+
 func TestCSPExternalFont(t *testing.T) {
 	want := []string{
 		`default-src 'none';`,

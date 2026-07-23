@@ -106,46 +106,9 @@ func (f *funcMap) Map() template.FuncMap {
 		"subtract": func(a, b int) int {
 			return a - b
 		},
-		"queryString": func(params map[string]any) string {
-			if len(params) == 0 {
-				return ""
-			}
-
-			values := url.Values{}
-			for key, value := range params {
-				switch v := value.(type) {
-				case string:
-					if v != "" {
-						values.Set(key, v)
-					}
-				case int:
-					if v != 0 {
-						values.Set(key, strconv.Itoa(v))
-					}
-				case int64:
-					if v != 0 {
-						values.Set(key, strconv.FormatInt(v, 10))
-					}
-				case bool:
-					if v {
-						values.Set(key, "1")
-					}
-				default:
-					if value != nil {
-						str := fmt.Sprint(value)
-						if str != "" {
-							values.Set(key, str)
-						}
-					}
-				}
-			}
-
-			encoded := values.Encode()
-			if encoded == "" {
-				return ""
-			}
-
-			return "?" + encoded
+		"queryString": queryString,
+		"queryStringPercentEncoded": func(params map[string]any) string {
+			return strings.ReplaceAll(queryString(params), "+", "%20")
 		},
 
 		// These functions are overridden at runtime after parsing.
@@ -159,6 +122,48 @@ func (f *funcMap) Map() template.FuncMap {
 			return ""
 		},
 	}
+}
+
+func queryString(params map[string]any) string {
+	if len(params) == 0 {
+		return ""
+	}
+
+	values := url.Values{}
+	for key, value := range params {
+		switch v := value.(type) {
+		case string:
+			if v != "" {
+				values.Set(key, v)
+			}
+		case int:
+			if v != 0 {
+				values.Set(key, strconv.Itoa(v))
+			}
+		case int64:
+			if v != 0 {
+				values.Set(key, strconv.FormatInt(v, 10))
+			}
+		case bool:
+			if v {
+				values.Set(key, "1")
+			}
+		default:
+			if value != nil {
+				str := fmt.Sprint(value)
+				if str != "" {
+					values.Set(key, str)
+				}
+			}
+		}
+	}
+
+	encoded := values.Encode()
+	if encoded == "" {
+		return ""
+	}
+
+	return "?" + encoded
 }
 
 func (f *funcMap) iconPath(filename string) string {
