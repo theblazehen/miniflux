@@ -53,6 +53,8 @@
     "entry.starred.toggle.on": "Поставити зірочку",
     "entry.comments.label": "Коментарі",
     "entry.comments.title": "Дивитися коментарі",
+    "entry.hn_submit.label": "Send to HN",
+    "entry.hn_submit.title": "Send this entry to Hacker News",
     "entry.estimated_reading_time": [
         "читати %d хвилину",
         "читати %d хвилини",

@@ -51,6 +51,8 @@
     "entry.starred.toggle.on": "Siu-chông khí-lâi",
     "entry.comments.label": "Hôe-èng",
     "entry.comments.title": "Khòaⁿ hôe-èng",
+    "entry.hn_submit.label": "Send to HN",
+    "entry.hn_submit.title": "Send this entry to Hacker News",
     "entry.estimated_reading_time": [
         "Ài %d hun-cheng lâi tha̍k"
     ],

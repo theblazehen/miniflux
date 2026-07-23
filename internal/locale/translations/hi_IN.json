@@ -52,6 +52,8 @@
     "entry.starred.toggle.on": "सितारा दे",
     "entry.comments.label": "टिप्पणियाँ",
     "entry.comments.title": "टिप्पणियाँ देखे",
+    "entry.hn_submit.label": "Send to HN",
+    "entry.hn_submit.title": "Send this entry to Hacker News",
     "entry.estimated_reading_time": [
         "पढ़ने मे %d मिनट मागेगा",
         "पढ़ने मे %d मिनट मागेगा"

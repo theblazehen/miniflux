@@ -52,6 +52,8 @@
     "entry.starred.toggle.on": "Star",
     "entry.comments.label": "Comments",
     "entry.comments.title": "View Comments",
+    "entry.hn_submit.label": "Send to HN",
+    "entry.hn_submit.title": "Send this entry to Hacker News",
     "entry.estimated_reading_time": [
         "%d minute read",
         "%d minutes read"

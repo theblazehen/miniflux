@@ -7,11 +7,11 @@ Docker: `ghcr.io/theblazehen/miniflux:main`
 
 ### Fork additions
 
-- **EntryReadingTime filter rule** — Block or allow entries by reading time in Entry Block/Allow Rules.  
+- **EntryReadingTime filter rule** — Block or allow entries by reading time in Entry Block/Allow Rules.
   Syntax: `EntryReadingTime=>2`, `EntryReadingTime=<5`, `EntryReadingTime=>=10`, etc. Value is in minutes.
 
-- **On-demand discussion links** — Entry detail pages show links to HN and Reddit discussions (with comment counts) when available.  
-  Also exposed via API: `GET /v1/entries/{entryID}/discussions` for third-party clients.  
+- **On-demand discussion links** — Entry detail pages show links to HN and Reddit discussions (with comment counts) when available.
+  Also exposed via API: `GET /v1/entries/{entryID}/discussions` for third-party clients.
   Results are cached server-side (30min). No database changes required.
 
 ---

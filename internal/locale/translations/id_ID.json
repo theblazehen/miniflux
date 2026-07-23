@@ -51,6 +51,8 @@
     "entry.starred.toggle.on": "Markahi",
     "entry.comments.label": "Komentar",
     "entry.comments.title": "Lihat Komentar",
+    "entry.hn_submit.label": "Send to HN",
+    "entry.hn_submit.title": "Send this entry to Hacker News",
     "entry.estimated_reading_time": [
         "%d menit untuk dibaca"
     ],

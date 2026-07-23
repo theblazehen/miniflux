@@ -26,6 +26,10 @@ This is a fork of [miniflux/v2](https://github.com/miniflux/v2) maintained at [t
 - **Wiring**: `Finder` singleton created in `internal/http/server/routes.go`, injected into both API and UI handlers.
 - **Handler files**: `internal/api/discussion_handlers.go`, `internal/ui/entry_discussions.go`
 
+### Send to Hacker News
+- **Location**: Entry action bars in `internal/template/templates/views/entry.html` and `internal/template/templates/common/item_meta.html`
+- **What**: Opens Hacker News's submission form with the entry URL and title prefilled
+
 ## Build & Deploy
 
 ### Docker / GHCR

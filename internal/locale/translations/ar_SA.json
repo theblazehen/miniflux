@@ -56,6 +56,8 @@
     "entry.starred.toggle.on": "إضافة للمفضلة",
     "entry.comments.label": "تعليقات",
     "entry.comments.title": "عرض التعليقات",
+    "entry.hn_submit.label": "Send to HN",
+    "entry.hn_submit.title": "Send this entry to Hacker News",
     "entry.estimated_reading_time": [
         "قراءة %d دقيقة",
         "قراءة دقيقة واحدة",

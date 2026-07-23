@@ -53,6 +53,8 @@
     "entry.starred.toggle.on": "Dodaj do ulubionych",
     "entry.comments.label": "Komentarze",
     "entry.comments.title": "Zobacz komentarze",
+    "entry.hn_submit.label": "Send to HN",
+    "entry.hn_submit.title": "Send this entry to Hacker News",
     "entry.estimated_reading_time": [
         "%d minuta czytania",
         "%d minuty czytania",

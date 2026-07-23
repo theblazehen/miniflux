@@ -52,6 +52,8 @@
     "entry.starred.toggle.on": "Lisää suosikkeihin",
     "entry.comments.label": "Kommentit",
     "entry.comments.title": "Näytä kommentit",
+    "entry.hn_submit.label": "Send to HN",
+    "entry.hn_submit.title": "Send this entry to Hacker News",
     "entry.estimated_reading_time": [
         "%d minuutin lukuaika",
         "%d minuutin lukuaika"

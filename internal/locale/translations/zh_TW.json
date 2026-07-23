@@ -51,6 +51,8 @@
     "entry.starred.toggle.on": "新增收藏",
     "entry.comments.label": "評論",
     "entry.comments.title": "檢視評論",
+    "entry.hn_submit.label": "Send to HN",
+    "entry.hn_submit.title": "Send this entry to Hacker News",
     "entry.estimated_reading_time": [
         "需要 %d 分鐘閱讀"
     ],

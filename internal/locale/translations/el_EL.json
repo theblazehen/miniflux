@@ -52,6 +52,8 @@
     "entry.starred.toggle.on": "Αγαπημένο",
     "entry.comments.label": "Σχόλια",
     "entry.comments.title": "Δείτε Σχόλια",
+    "entry.hn_submit.label": "Send to HN",
+    "entry.hn_submit.title": "Send this entry to Hacker News",
     "entry.estimated_reading_time": [
         "%d λεπτό ανάγνωση",
         "%d λεπτά ανάγνωση"

@@ -53,6 +53,8 @@
     "entry.starred.toggle.on": "Stea",
     "entry.comments.label": "Comentarii",
     "entry.comments.title": "Vizualizare Comentarii",
+    "entry.hn_submit.label": "Send to HN",
+    "entry.hn_submit.title": "Send this entry to Hacker News",
     "entry.estimated_reading_time": [
         "%d minut de lectură",
         "%d minute de lectură",

@@ -81,6 +81,12 @@
                     data-comments-link="true">{{ icon "comment" }}<span class="icon-label">{{ t "entry.comments.label" }}</span></a>
             </li>
         {{ end -}}
+        <li class="item-meta-icons-send-to-hn">
+            <a href="https://news.ycombinator.com/submitlink{{ queryString (dict "u" .entry.URL "t" .entry.Title) }}"
+                aria-describedby="entry-title-{{ .entry.ID }}"
+                title="{{ t "entry.hn_submit.title" }}"
+                {{ if $.user.OpenExternalLinksInNewTab }}target="_blank"{{ else }}rel="noopener"{{ end }}>{{ icon "share" }}<span class="icon-label">{{ t "entry.hn_submit.label" }}</span></a>
+        </li>
         <li class="item-meta-icons-discussions" data-discussions-url="{{ routePath "/entry/%d/discussions" .entry.ID }}" style="display:none"></li>
     </ul>
 </div>

@@ -52,6 +52,8 @@
     "entry.starred.toggle.on": "Yıldız ekle",
     "entry.comments.label": "Yorumlar",
     "entry.comments.title": "Yorumları Göster",
+    "entry.hn_submit.label": "Send to HN",
+    "entry.hn_submit.title": "Send this entry to Hacker News",
     "entry.estimated_reading_time": [
         "%d dakika okuma süresi",
         "%d dakika okuma süresi"

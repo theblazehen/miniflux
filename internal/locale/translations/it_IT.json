@@ -52,6 +52,8 @@
     "entry.starred.toggle.on": "Aggiungi ai preferiti",
     "entry.comments.label": "Commenti",
     "entry.comments.title": "Mostra i commenti",
+    "entry.hn_submit.label": "Send to HN",
+    "entry.hn_submit.title": "Send this entry to Hacker News",
     "entry.estimated_reading_time": [
         "%d minuto di lettura",
         "%d minuti di lettura"
