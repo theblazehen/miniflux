@@ -86,8 +86,36 @@ func ParseRules(userRules, feedRules string) filterRules {
 	return rules
 }
 
+// legacyReadingTimeOperators are the comparison operators understood by
+// EntryReadingTime rules. They are the operators that can be written without the
+// `=` field separator, for instance "EntryReadingTime>0".
+var legacyReadingTimeOperators = []string{">=", "<=", "!=", ">", "<"}
+
+// cutLegacyReadingTimeRule recognizes the no-separator form of an EntryReadingTime
+// comparison rule, such as "EntryReadingTime>0" or "EntryReadingTime<=5", and
+// returns its comparison pattern (e.g. ">0"). The documented form
+// ("EntryReadingTime=>0") is not matched here: its pattern starts with `=`.
+// Values of that legacy shape can already sit in the database, so the evaluator
+// still understands them; the settings validator keeps requiring the documented
+// `FieldName=operator+value` form for newly saved rules.
+func cutLegacyReadingTimeRule(userDefinedRule string) (string, bool) {
+	pattern, found := strings.CutPrefix(userDefinedRule, "EntryReadingTime")
+	if !found {
+		return "", false
+	}
+	for _, operator := range legacyReadingTimeOperators {
+		if strings.HasPrefix(pattern, operator) {
+			return pattern, true
+		}
+	}
+	return "", false
+}
+
 func parseRule(userDefinedRule string) (bool, filterRule) {
 	userDefinedRule = strings.TrimSpace(strings.ReplaceAll(userDefinedRule, "\r\n", ""))
+	if pattern, found := cutLegacyReadingTimeRule(userDefinedRule); found {
+		return true, filterRule{Type: "EntryReadingTime", Value: pattern}
+	}
 	parts := strings.SplitN(userDefinedRule, "=", 2)
 	if len(parts) != 2 {
 		return false, filterRule{}

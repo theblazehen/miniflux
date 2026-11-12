@@ -29,6 +29,14 @@ func (h *handler) showAboutPage(w http.ResponseWriter, r *http.Request) {
 	view.Set("build_date", version.BuildDate)
 	view.Set("menu", "settings")
 	view.Set("user", user)
+
+	// The About page reports the user's own profile, so render it in the
+	// language stored on the user record instead of the copy cached in the web
+	// session, which is only refreshed at login and can be stale (for example
+	// when the language is changed through the API).
+	if user.Language != "" {
+		view.Set("language", user.Language)
+	}
 	navMetadata, _ := h.store.GetNavMetadata(user.ID)
 	view.Set("countUnread", navMetadata.CountUnread)
 	view.Set("countErrorFeeds", navMetadata.CountErrorFeeds)

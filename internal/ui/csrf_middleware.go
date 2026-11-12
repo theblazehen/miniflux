@@ -7,6 +7,8 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"net/url"
+	"strings"
 
 	"miniflux.app/v2/internal/crypto"
 	"miniflux.app/v2/internal/http/request"
@@ -38,7 +40,38 @@ func (m *csrfMiddleware) handle(next http.Handler) http.Handler {
 	})
 }
 
+// isCrossOrigin reports whether the request carries an explicit signal that it
+// was issued by another origin. It is deliberately conservative: requests
+// without an Origin header and without a Sec-Fetch-Site header (command-line
+// clients, older browsers) are not cross-origin, and same-origin navigations
+// ("none") or same-origin fetches are accepted, so the token check alone still
+// decides those. Only a foreign Origin or an explicit "cross-site" fetch site
+// is treated as cross-origin.
+func isCrossOrigin(r *http.Request) bool {
+	if origin := r.Header.Get("Origin"); origin != "" {
+		parsedOrigin, err := url.Parse(origin)
+		if err != nil {
+			return true
+		}
+		if !strings.EqualFold(parsedOrigin.Host, r.Host) {
+			return true
+		}
+	}
+
+	return strings.EqualFold(r.Header.Get("Sec-Fetch-Site"), "cross-site")
+}
+
 func (m *csrfMiddleware) validate(w http.ResponseWriter, r *http.Request) bool {
+	if isCrossOrigin(r) {
+		slog.Warn("Rejected cross-origin state-changing request",
+			slog.String("url", r.RequestURI),
+			slog.String("origin", r.Header.Get("Origin")),
+			slog.String("sec_fetch_site", r.Header.Get("Sec-Fetch-Site")),
+		)
+		response.HTMLForbidden(w, r)
+		return false
+	}
+
 	session := request.WebSession(r)
 	if session == nil {
 		response.HTMLBadRequest(w, r, errors.New("invalid or missing CSRF"))

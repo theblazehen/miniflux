@@ -311,7 +311,7 @@ func (e *EntryQueryBuilder) fetchEntries(withCount bool) (model.Entries, int, er
 			e.title,
 			e.url,
 			e.comments_url,
-			e.author,
+			COALESCE(e.author, '') AS author,
 			e.share_code,
 			` + e.contentColumn() + `,
 			e.status,
@@ -512,11 +512,14 @@ func (e *EntryQueryBuilder) GetEntryIDsWithCount() ([]int64, int, error) {
 	return entryIDs, total, nil
 }
 
+// contentColumn returns the SQL expression used for the entry content column.
+// The entries.content column is nullable, so it is coalesced to an empty string
+// to keep the row scan into model.Entry.Content (a plain string) safe.
 func (e *EntryQueryBuilder) contentColumn() string {
 	if e.excludeContent {
 		return "'' AS content"
 	}
-	return "e.content"
+	return "COALESCE(e.content, '') AS content"
 }
 
 func (e *EntryQueryBuilder) buildCondition() string {
