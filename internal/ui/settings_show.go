@@ -12,7 +12,6 @@ import (
 	"miniflux.app/v2/internal/model"
 	"miniflux.app/v2/internal/timezone"
 	"miniflux.app/v2/internal/ui/form"
-	"miniflux.app/v2/internal/ui/session"
 	"miniflux.app/v2/internal/ui/view"
 )
 
@@ -24,7 +23,6 @@ func (h *handler) showSettingsPage(w http.ResponseWriter, r *http.Request) {
 	}
 
 	settingsForm := form.SettingsForm{
-		Username:                  user.Username,
 		Theme:                     user.Theme,
 		Language:                  user.Language,
 		Timezone:                  user.Timezone,
@@ -51,14 +49,7 @@ func (h *handler) showSettingsPage(w http.ResponseWriter, r *http.Request) {
 		OpenExternalLinksInNewTab: user.OpenExternalLinksInNewTab,
 	}
 
-	creds, err := h.store.WebAuthnCredentialsByUserID(user.ID)
-	if err != nil {
-		response.HTMLServerError(w, r, err)
-		return
-	}
-
-	sess := session.New(h.store, request.SessionID(r))
-	view := view.New(h.tpl, r, sess)
+	view := view.New(h.tpl, r)
 	view.Set("form", settingsForm)
 	view.Set("readBehaviors", map[string]any{
 		"NoAutoMarkAsRead":                           form.NoAutoMarkAsRead,
@@ -71,12 +62,12 @@ func (h *handler) showSettingsPage(w http.ResponseWriter, r *http.Request) {
 	view.Set("timezones", timezone.AvailableTimezones())
 	view.Set("menu", "settings")
 	view.Set("user", user)
-	view.Set("countUnread", h.store.CountUnreadEntries(user.ID))
-	view.Set("countErrorFeeds", h.store.CountUserFeedsWithErrors(user.ID))
+	navMetadata, _ := h.store.GetNavMetadata(user.ID)
+	view.Set("countUnread", navMetadata.CountUnread)
+	view.Set("countErrorFeeds", navMetadata.CountErrorFeeds)
 	view.Set("default_home_pages", model.HomePages())
 	view.Set("categories_sorting_options", model.CategoriesSortingOptions())
-	view.Set("countWebAuthnCerts", h.store.CountWebAuthnCredentialsByUserID(user.ID))
-	view.Set("webAuthnCerts", creds)
+	view.Set("maxEntriesPerPage", model.MaxEntryLimit)
 
 	response.HTML(w, r, view.Render("settings"))
 }

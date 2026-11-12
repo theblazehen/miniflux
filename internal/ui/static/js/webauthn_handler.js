@@ -30,7 +30,7 @@ class WebAuthnHandler {
 
     async conditionalLogin(abortController) {
         if (await WebAuthnHandler.isConditionalLoginSupported()) {
-            return this.login("", abortController);
+            return this.login(abortController);
         }
     }
 
@@ -45,26 +45,24 @@ class WebAuthnHandler {
             .replace(/=+$/g, "");
     }
 
-    async post(urlKey, username, data) {
+    async post(urlKey, data, queryParams) {
         let url = document.body.dataset[urlKey];
-        if (username) {
-            url += `?username=${encodeURIComponent(username)}`;
+        if (queryParams) {
+            const parsedURL = new URL(url, window.location.origin);
+            parsedURL.search = queryParams.toString();
+            url = parsedURL.toString();
         }
-
         return sendPOSTRequest(url, data);
     }
 
-    async get(urlKey, username) {
-        let url = document.body.dataset[urlKey];
-        if (username) {
-            url += `?username=${encodeURIComponent(username)}`;
-        }
+    async get(urlKey) {
+        const url = document.body.dataset[urlKey];
         return fetch(url);
     }
 
     async removeAllCredentials() {
         try {
-            await this.post("webauthnDeleteAllUrl", null, {});
+            await this.post("webauthnDeleteAllUrl", {});
         } catch (err) {
             WebAuthnHandler.showErrorMessage(err);
             return;
@@ -108,7 +106,7 @@ class WebAuthnHandler {
 
         let registrationFinishResponse;
         try {
-            registrationFinishResponse = await this.post("webauthnRegisterFinishUrl", null, {
+            registrationFinishResponse = await this.post("webauthnRegisterFinishUrl", {
                 id: attestation.id,
                 rawId: this.encodeBuffer(attestation.rawId),
                 type: attestation.type,
@@ -130,10 +128,10 @@ class WebAuthnHandler {
         window.location.href = jsonData.redirect;
     }
 
-    async login(username, abortController) {
+    async login(abortController) {
         let loginBeginResponse;
         try {
-            loginBeginResponse = await this.get("webauthnLoginBeginUrl", username);
+            loginBeginResponse = await this.get("webauthnLoginBeginUrl");
         } catch (err) {
             WebAuthnHandler.showErrorMessage(err);
             return;
@@ -179,7 +177,12 @@ class WebAuthnHandler {
 
         let loginFinishResponse;
         try {
-            loginFinishResponse = await this.post("webauthnLoginFinishUrl", username, {
+            const queryParams = new URLSearchParams();
+            const redirectURL = new URLSearchParams(window.location.search).get("redirect_url");
+            if (redirectURL) {
+                queryParams.set("redirect_url", redirectURL);
+            }
+            loginFinishResponse = await this.post("webauthnLoginFinishUrl", {
                 id: assertion.id,
                 rawId: this.encodeBuffer(assertion.rawId),
                 type: assertion.type,
@@ -189,7 +192,7 @@ class WebAuthnHandler {
                     signature: this.encodeBuffer(assertion.response.signature),
                     userHandle: this.encodeBuffer(assertion.response.userHandle),
                 },
-            });
+            }, queryParams);
         } catch (err) {
             WebAuthnHandler.showErrorMessage(err);
             return;
@@ -199,6 +202,7 @@ class WebAuthnHandler {
             throw new Error(`Login failed with HTTP status code ${loginFinishResponse.status}`);
         }
 
-        window.location.reload();
+        const jsonData = await loginFinishResponse.json();
+        window.location.href = jsonData.redirect;
     }
 }

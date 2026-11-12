@@ -7,16 +7,25 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
+	"slices"
 
+	"miniflux.app/v2/internal/config"
 	"miniflux.app/v2/internal/model"
 
 	"github.com/coreos/go-oidc/v3/oidc"
 	"golang.org/x/oauth2"
 )
 
-var (
-	ErrEmptyUsername = errors.New("oidc: username is empty")
-)
+// ErrEmptyUsername is returned when the OIDC user profile has no username.
+var ErrEmptyUsername = errors.New("oidc: username is empty")
+
+type userClaims struct {
+	Email             string `json:"email"`
+	Profile           string `json:"profile"`
+	Name              string `json:"name"`
+	PreferredUsername string `json:"preferred_username"`
+}
 
 type oidcProvider struct {
 	clientID     string
@@ -25,7 +34,9 @@ type oidcProvider struct {
 	provider     *oidc.Provider
 }
 
-func NewOidcProvider(ctx context.Context, clientID, clientSecret, redirectURL, discoveryEndpoint string) (*oidcProvider, error) {
+// NewOidcProvider returns a Provider that authenticates users via OpenID Connect.
+// It discovers the OIDC endpoints from the given discovery URL.
+func NewOidcProvider(ctx context.Context, clientID, clientSecret, redirectURL, discoveryEndpoint string) (Provider, error) {
 	provider, err := oidc.NewProvider(ctx, discoveryEndpoint)
 	if err != nil {
 		return nil, fmt.Errorf(`oidc: failed to initialize provider %q: %w`, discoveryEndpoint, err)
@@ -39,22 +50,22 @@ func NewOidcProvider(ctx context.Context, clientID, clientSecret, redirectURL, d
 	}, nil
 }
 
-func (o *oidcProvider) GetUserExtraKey() string {
+func (o *oidcProvider) UserExtraKey() string {
 	return "openid_connect_id"
 }
 
-func (o *oidcProvider) GetConfig() *oauth2.Config {
+func (o *oidcProvider) Config() *oauth2.Config {
 	return &oauth2.Config{
 		RedirectURL:  o.redirectURL,
 		ClientID:     o.clientID,
 		ClientSecret: o.clientSecret,
-		Scopes:       []string{oidc.ScopeOpenID, "profile", "email"},
+		Scopes:       slices.Concat([]string{oidc.ScopeOpenID, "profile", "email"}, config.Opts.Oauth2AdditionalScopes()),
 		Endpoint:     o.provider.Endpoint(),
 	}
 }
 
-func (o *oidcProvider) GetProfile(ctx context.Context, code, codeVerifier string) (*Profile, error) {
-	conf := o.GetConfig()
+func (o *oidcProvider) Profile(ctx context.Context, code, codeVerifier string) (*UserProfile, error) {
+	conf := o.Config()
 	token, err := conf.Exchange(ctx, code, oauth2.SetAuthURLParam("code_verifier", codeVerifier))
 	if err != nil {
 		return nil, fmt.Errorf(`oidc: failed to exchange token: %w`, err)
@@ -80,8 +91,8 @@ func (o *oidcProvider) GetProfile(ctx context.Context, code, codeVerifier string
 		return nil, fmt.Errorf(`oidc: id token subject %q does not match userinfo subject %q`, idToken.Subject, userInfo.Subject)
 	}
 
-	profile := &Profile{
-		Key: o.GetUserExtraKey(),
+	profile := &UserProfile{
+		Key: o.UserExtraKey(),
 		ID:  userInfo.Subject,
 	}
 
@@ -103,18 +114,52 @@ func (o *oidcProvider) GetProfile(ctx context.Context, code, codeVerifier string
 		return nil, ErrEmptyUsername
 	}
 
+	if groupClaim := config.Opts.Oauth2GroupClaim(); groupClaim != "" {
+		var rawUserClaims map[string]any
+		if err := userInfo.Claims(&rawUserClaims); err != nil {
+			return nil, fmt.Errorf(`oidc: failed to parse user claims: %w`, err)
+		}
+
+		groups, found, err := groupsFromClaims(rawUserClaims, groupClaim)
+		if err != nil {
+			return nil, err
+		}
+
+		// Some providers only include the groups in the ID token.
+		if !found {
+			var rawIDTokenClaims map[string]any
+			if err := idToken.Claims(&rawIDTokenClaims); err != nil {
+				return nil, fmt.Errorf(`oidc: failed to parse id token claims: %w`, err)
+			}
+
+			groups, found, err = groupsFromClaims(rawIDTokenClaims, groupClaim)
+			if err != nil {
+				return nil, err
+			}
+		}
+
+		if !found {
+			slog.Warn("[OIDC] Group claim not found in the ID token or user info",
+				slog.String("claim", groupClaim),
+				slog.String("username", profile.Username),
+			)
+		}
+
+		profile.Groups = groups
+	}
+
 	return profile, nil
 }
 
-func (o *oidcProvider) PopulateUserCreationWithProfileID(user *model.UserCreationRequest, profile *Profile) {
+func (o *oidcProvider) PopulateUserCreationWithProfileID(user *model.UserCreationRequest, profile *UserProfile) {
 	user.OpenIDConnectID = profile.ID
 }
 
-func (o *oidcProvider) PopulateUserWithProfileID(user *model.User, profile *Profile) {
+func (o *oidcProvider) PopulateUserWithProfileID(user *model.User, profile *UserProfile) {
 	user.OpenIDConnectID = profile.ID
 }
 
-func (o *oidcProvider) GetUserProfileID(user *model.User) string {
+func (o *oidcProvider) UserProfileID(user *model.User) string {
 	return user.OpenIDConnectID
 }
 
@@ -122,9 +167,27 @@ func (o *oidcProvider) UnsetUserProfileID(user *model.User) {
 	user.OpenIDConnectID = ""
 }
 
-type userClaims struct {
-	Email             string `json:"email"`
-	Profile           string `json:"profile"`
-	Name              string `json:"name"`
-	PreferredUsername string `json:"preferred_username"`
+// groupsFromClaims returns the groups stored in the given claim, and whether the claim is present.
+func groupsFromClaims(claims map[string]any, claimName string) ([]string, bool, error) {
+	rawValue, found := claims[claimName]
+	if !found {
+		return nil, false, nil
+	}
+
+	switch value := rawValue.(type) {
+	case string:
+		return []string{value}, true, nil
+	case []any:
+		groups := make([]string, 0, len(value))
+		for _, rawEntry := range value {
+			entry, ok := rawEntry.(string)
+			if !ok {
+				return nil, true, fmt.Errorf(`oidc: failed to parse user claims: %q must only contain strings`, claimName)
+			}
+			groups = append(groups, entry)
+		}
+		return groups, true, nil
+	default:
+		return nil, true, fmt.Errorf(`oidc: failed to parse user claims: %q must be a string or a list of strings`, claimName)
+	}
 }

@@ -17,7 +17,9 @@ import (
 // The returned handler expects the base path to be stripped from the request URL.
 func Serve(store *storage.Storage, pool *worker.Pool, discussions *discussion.Finder) http.Handler {
 	basePath := config.Opts.BasePath()
-	middleware := newMiddleware(basePath, store)
+	webSessionMiddleware := newWebSessionMiddleware(basePath, store)
+	csrfMiddleware := newCSRFMiddleware(basePath)
+	authProxyMiddleware := newAuthProxyMiddleware(basePath, store)
 
 	templateEngine := template.NewEngine(basePath)
 	templateEngine.ParseTemplates()
@@ -59,10 +61,9 @@ func Serve(store *storage.Storage, pool *worker.Pool, discussions *discussion.Fi
 
 	// Feed listing pages.
 	mux.HandleFunc("GET /feeds", handler.showFeedsPage)
-	mux.HandleFunc("GET /feeds/refresh", handler.refreshAllFeeds)
+	mux.HandleFunc("POST /feeds/refresh", handler.refreshAllFeeds)
 
 	// Individual feed pages.
-	mux.HandleFunc("GET /feed/{feedID}/refresh", handler.refreshFeed)
 	mux.HandleFunc("POST /feed/{feedID}/refresh", handler.refreshFeed)
 	mux.HandleFunc("GET /feed/{feedID}/edit", handler.showEditFeedPage)
 	mux.HandleFunc("POST /feed/{feedID}/remove", handler.removeFeed)
@@ -83,9 +84,10 @@ func Serve(store *storage.Storage, pool *worker.Pool, discussions *discussion.Fi
 	mux.HandleFunc("POST /category/save", handler.saveCategory)
 	mux.HandleFunc("GET /category/{categoryID}/feeds", handler.showCategoryFeedsPage)
 	mux.HandleFunc("POST /category/{categoryID}/feed/{feedID}/remove", handler.removeCategoryFeed)
-	mux.HandleFunc("GET /category/{categoryID}/feeds/refresh", handler.refreshCategoryFeedsPage)
+	mux.HandleFunc("POST /category/{categoryID}/feed/{feedID}/mark-all-as-read", handler.markCategoryFeedAsRead)
+	mux.HandleFunc("POST /category/{categoryID}/feeds/refresh", handler.refreshCategoryFeedsPage)
 	mux.HandleFunc("GET /category/{categoryID}/entries", handler.showCategoryEntriesPage)
-	mux.HandleFunc("GET /category/{categoryID}/entries/refresh", handler.refreshCategoryEntriesPage)
+	mux.HandleFunc("POST /category/{categoryID}/entries/refresh", handler.refreshCategoryEntriesPage)
 	mux.HandleFunc("GET /category/{categoryID}/entries/all", handler.showCategoryEntriesAllPage)
 	mux.HandleFunc("GET /category/{categoryID}/entries/starred", handler.showCategoryEntriesStarredPage)
 	mux.HandleFunc("GET /category/{categoryID}/edit", handler.showEditCategoryPage)
@@ -125,6 +127,8 @@ func Serve(store *storage.Storage, pool *worker.Pool, discussions *discussion.Fi
 	// Settings pages.
 	mux.HandleFunc("GET /settings", handler.showSettingsPage)
 	mux.HandleFunc("POST /settings", handler.updateSettings)
+	mux.HandleFunc("GET /authentication", handler.showAuthenticationPage)
+	mux.HandleFunc("POST /authentication", handler.updateAuthentication)
 	mux.HandleFunc("GET /integrations", handler.showIntegrationPage)
 	mux.HandleFunc("POST /integration", handler.updateIntegration)
 	mux.HandleFunc("GET /about", handler.showAboutPage)
@@ -149,7 +153,7 @@ func Serve(store *storage.Storage, pool *worker.Pool, discussions *discussion.Fi
 
 	// OAuth2 flow.
 	if config.Opts.OAuth2Provider() != "" {
-		mux.HandleFunc("GET /oauth2/{provider}/unlink", handler.oauth2Unlink)
+		mux.HandleFunc("POST /oauth2/{provider}/unlink", handler.oauth2Unlink)
 		mux.HandleFunc("GET /oauth2/{provider}/redirect", handler.oauth2Redirect)
 		mux.HandleFunc("GET /oauth2/{provider}/callback", handler.oauth2Callback)
 	}
@@ -159,8 +163,8 @@ func Serve(store *storage.Storage, pool *worker.Pool, discussions *discussion.Fi
 
 	// Authentication pages.
 	mux.HandleFunc("POST /login", handler.checkLogin)
-	mux.HandleFunc("GET /logout", handler.logout)
-	mux.Handle("GET /{$}", middleware.handleAuthProxy(http.HandlerFunc(handler.showLoginPage)))
+	mux.HandleFunc("POST /logout", handler.logout)
+	mux.Handle("GET /{$}", authProxyMiddleware.handle(http.HandlerFunc(handler.showLoginPage)))
 
 	// WebAuthn flow.
 	if config.Opts.WebAuthn() {
@@ -180,6 +184,6 @@ func Serve(store *storage.Storage, pool *worker.Pool, discussions *discussion.Fi
 		w.Write([]byte("User-agent: *\nDisallow: /"))
 	})
 
-	// Apply middleware chain: user session then app session.
-	return middleware.handleUserSession(middleware.handleAppSession(mux))
+	// Apply middleware chain: web session -> CSRF validation -> handlers.
+	return webSessionMiddleware.handle(csrfMiddleware.handle(mux))
 }

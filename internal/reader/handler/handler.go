@@ -44,7 +44,11 @@ func CreateFeedFromSubscriptionDiscovery(store *storage.Storage, userID int64, f
 		slog.String("proxy_url", feedCreationRequest.ProxyURL),
 	)
 
-	if !store.CategoryIDExists(userID, feedCreationRequest.CategoryID) {
+	categoryExists, storeErr := store.CategoryIDExists(userID, feedCreationRequest.CategoryID)
+	if storeErr != nil {
+		return nil, locale.NewLocalizedErrorWrapper(storeErr, "error.database_error", storeErr)
+	}
+	if !categoryExists {
 		return nil, locale.NewLocalizedErrorWrapper(ErrCategoryNotFound, "error.category_not_found")
 	}
 
@@ -95,18 +99,6 @@ func CreateFeedFromSubscriptionDiscovery(store *storage.Storage, userID int64, f
 		slog.String("feed_url", subscription.FeedURL),
 	)
 
-	requestBuilder := fetcher.NewRequestBuilder()
-	requestBuilder.WithUsernameAndPassword(feedCreationRequest.Username, feedCreationRequest.Password)
-	requestBuilder.WithUserAgent(feedCreationRequest.UserAgent, config.Opts.HTTPClientUserAgent())
-	requestBuilder.WithCookie(feedCreationRequest.Cookie)
-	requestBuilder.WithTimeout(config.Opts.HTTPClientTimeout())
-	requestBuilder.WithProxyRotator(proxyrotator.ProxyRotatorInstance)
-	requestBuilder.WithCustomFeedProxyURL(feedCreationRequest.ProxyURL)
-	requestBuilder.WithCustomApplicationProxyURL(config.Opts.HTTPClientProxyURL())
-	requestBuilder.UseCustomApplicationProxyURL(feedCreationRequest.FetchViaProxy)
-	requestBuilder.IgnoreTLSErrors(feedCreationRequest.AllowSelfSignedCertificates)
-	requestBuilder.DisableHTTP2(feedCreationRequest.DisableHTTP2)
-
 	icon.NewIconChecker(store, subscription).UpdateOrCreateFeedIcon()
 
 	return subscription, nil
@@ -120,21 +112,25 @@ func CreateFeed(store *storage.Storage, userID int64, feedCreationRequest *model
 		slog.String("proxy_url", feedCreationRequest.ProxyURL),
 	)
 
-	if !store.CategoryIDExists(userID, feedCreationRequest.CategoryID) {
+	categoryExists, storeErr := store.CategoryIDExists(userID, feedCreationRequest.CategoryID)
+	if storeErr != nil {
+		return nil, locale.NewLocalizedErrorWrapper(storeErr, "error.database_error", storeErr)
+	}
+	if !categoryExists {
 		return nil, locale.NewLocalizedErrorWrapper(ErrCategoryNotFound, "error.category_not_found")
 	}
 
-	requestBuilder := fetcher.NewRequestBuilder()
-	requestBuilder.WithUsernameAndPassword(feedCreationRequest.Username, feedCreationRequest.Password)
-	requestBuilder.WithUserAgent(feedCreationRequest.UserAgent, config.Opts.HTTPClientUserAgent())
-	requestBuilder.WithCookie(feedCreationRequest.Cookie)
-	requestBuilder.WithTimeout(config.Opts.HTTPClientTimeout())
-	requestBuilder.WithProxyRotator(proxyrotator.ProxyRotatorInstance)
-	requestBuilder.WithCustomFeedProxyURL(feedCreationRequest.ProxyURL)
-	requestBuilder.WithCustomApplicationProxyURL(config.Opts.HTTPClientProxyURL())
-	requestBuilder.UseCustomApplicationProxyURL(feedCreationRequest.FetchViaProxy)
-	requestBuilder.IgnoreTLSErrors(feedCreationRequest.AllowSelfSignedCertificates)
-	requestBuilder.DisableHTTP2(feedCreationRequest.DisableHTTP2)
+	requestBuilder := fetcher.NewRequestBuilder().
+		WithUsernameAndPassword(feedCreationRequest.Username, feedCreationRequest.Password).
+		WithUserAgent(feedCreationRequest.UserAgent, config.Opts.HTTPClientUserAgent()).
+		WithCookie(feedCreationRequest.Cookie, feedCreationRequest.FeedURL).
+		WithTimeout(config.Opts.HTTPClientTimeout()).
+		WithProxyRotator(proxyrotator.ProxyRotatorInstance).
+		WithCustomFeedProxyURL(feedCreationRequest.ProxyURL).
+		WithCustomApplicationProxyURL(config.Opts.HTTPClientProxyURL()).
+		UseCustomApplicationProxyURL(feedCreationRequest.FetchViaProxy).
+		IgnoreTLSErrors(feedCreationRequest.AllowSelfSignedCertificates).
+		DisableHTTP2(feedCreationRequest.DisableHTTP2)
 
 	responseHandler := fetcher.NewResponseHandler(requestBuilder.ExecuteRequest(feedCreationRequest.FeedURL))
 	defer responseHandler.Close()
@@ -179,6 +175,7 @@ func CreateFeed(store *storage.Storage, userID int64, feedCreationRequest *model
 	subscription.BlockFilterEntryRules = feedCreationRequest.BlockFilterEntryRules
 	subscription.KeepFilterEntryRules = feedCreationRequest.KeepFilterEntryRules
 	subscription.HideGlobally = feedCreationRequest.HideGlobally
+	subscription.NoMediaPlayer = feedCreationRequest.NoMediaPlayer
 	subscription.EtagHeader = responseHandler.ETag()
 	subscription.LastModifiedHeader = responseHandler.LastModified()
 	subscription.FeedURL = responseHandler.EffectiveURL()
@@ -232,22 +229,23 @@ func RefreshFeed(store *storage.Storage, userID, feedID int64, forceRefresh bool
 	originalFeed.CheckedNow()
 	originalFeed.ScheduleNextCheck(weeklyEntryCount, time.Duration(0))
 
-	requestBuilder := fetcher.NewRequestBuilder()
-	requestBuilder.WithUsernameAndPassword(originalFeed.Username, originalFeed.Password)
-	requestBuilder.WithUserAgent(originalFeed.UserAgent, config.Opts.HTTPClientUserAgent())
-	requestBuilder.WithCookie(originalFeed.Cookie)
-	requestBuilder.WithTimeout(config.Opts.HTTPClientTimeout())
-	requestBuilder.WithProxyRotator(proxyrotator.ProxyRotatorInstance)
-	requestBuilder.WithCustomFeedProxyURL(originalFeed.ProxyURL)
-	requestBuilder.WithCustomApplicationProxyURL(config.Opts.HTTPClientProxyURL())
-	requestBuilder.UseCustomApplicationProxyURL(originalFeed.FetchViaProxy)
-	requestBuilder.IgnoreTLSErrors(originalFeed.AllowSelfSignedCertificates)
-	requestBuilder.DisableHTTP2(originalFeed.DisableHTTP2)
+	requestBuilder := fetcher.NewRequestBuilder().
+		WithUsernameAndPassword(originalFeed.Username, originalFeed.Password).
+		WithUserAgent(originalFeed.UserAgent, config.Opts.HTTPClientUserAgent()).
+		WithCookie(originalFeed.Cookie, originalFeed.FeedURL).
+		WithTimeout(config.Opts.HTTPClientTimeout()).
+		WithProxyRotator(proxyrotator.ProxyRotatorInstance).
+		WithCustomFeedProxyURL(originalFeed.ProxyURL).
+		WithCustomApplicationProxyURL(config.Opts.HTTPClientProxyURL()).
+		UseCustomApplicationProxyURL(originalFeed.FetchViaProxy).
+		IgnoreTLSErrors(originalFeed.AllowSelfSignedCertificates).
+		DisableHTTP2(originalFeed.DisableHTTP2)
 
 	ignoreHTTPCache := originalFeed.IgnoreHTTPCache || forceRefresh
 	if !ignoreHTTPCache {
-		requestBuilder.WithETag(originalFeed.EtagHeader)
-		requestBuilder.WithLastModified(originalFeed.LastModifiedHeader)
+		requestBuilder = requestBuilder.
+			WithETag(originalFeed.EtagHeader).
+			WithLastModified(originalFeed.LastModifiedHeader)
 	}
 
 	responseHandler := fetcher.NewResponseHandler(requestBuilder.ExecuteRequest(originalFeed.FeedURL))
@@ -351,7 +349,7 @@ func RefreshFeed(store *storage.Storage, userID, feedID int64, forceRefresh bool
 
 		originalFeed.EtagHeader = responseHandler.ETag()
 		originalFeed.LastModifiedHeader = responseHandler.LastModified()
-
+		originalFeed.Language = updatedFeed.Language
 		originalFeed.IconURL = updatedFeed.IconURL
 		iconChecker := icon.NewIconChecker(store, originalFeed)
 		if forceRefresh {

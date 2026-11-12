@@ -4,6 +4,7 @@
 package fetcher // import "miniflux.app/v2/internal/reader/fetcher"
 
 import (
+	"context"
 	"crypto/tls"
 	"encoding/base64"
 	"errors"
@@ -13,12 +14,18 @@ import (
 	"net/http"
 	"net/url"
 	"slices"
+	"strings"
+	"sync"
 	"syscall"
 	"time"
 
 	"miniflux.app/v2/internal/config"
 	"miniflux.app/v2/internal/proxyrotator"
 	"miniflux.app/v2/internal/urllib"
+
+	"golang.org/x/net/http/httpproxy"
+	"golang.org/x/net/idna"
+	"golang.org/x/net/publicsuffix"
 )
 
 const (
@@ -31,8 +38,19 @@ var (
 	ErrPrivateNetworkHost = errors.New("fetcher: refusing to access private network host")
 )
 
+type proxySource int
+
+const (
+	proxySourceNone proxySource = iota
+	proxySourceFeed
+	proxySourceApplication
+	proxySourceRotator
+)
+
 type RequestBuilder struct {
 	headers            http.Header
+	cookie             string
+	cookieSiteHost     string
 	clientProxyURL     *url.URL
 	clientTimeout      time.Duration
 	useClientProxy     bool
@@ -49,6 +67,15 @@ func NewRequestBuilder() *RequestBuilder {
 		headers:       make(http.Header),
 		clientTimeout: defaultHTTPClientTimeout,
 	}
+}
+
+// Clone returns an independent copy of the builder. Mutating the copy (for
+// example to disable redirects for a single request) leaves the original
+// untouched.
+func (r *RequestBuilder) Clone() *RequestBuilder {
+	clone := *r
+	clone.headers = r.headers.Clone()
+	return &clone
 }
 
 func (r *RequestBuilder) WithHeader(key, value string) *RequestBuilder {
@@ -79,9 +106,16 @@ func (r *RequestBuilder) WithUserAgent(userAgent string, defaultUserAgent string
 	return r
 }
 
-func (r *RequestBuilder) WithCookie(cookie string) *RequestBuilder {
+// WithCookie sets the Cookie header for requests to the website of siteURL,
+// that is its host or any host sharing its registrable domain. A cookie
+// configured for a feed must not be sent to the other websites it links to.
+func (r *RequestBuilder) WithCookie(cookie, siteURL string) *RequestBuilder {
 	if cookie != "" {
-		r.headers.Set("Cookie", cookie)
+		r.cookie = cookie
+		r.cookieSiteHost = ""
+		if parsedSiteURL, err := url.Parse(siteURL); err == nil {
+			r.cookieSiteHost = parsedSiteURL.Hostname()
+		}
 	}
 	return r
 }
@@ -139,9 +173,44 @@ func (r *RequestBuilder) WithoutCompression() *RequestBuilder {
 }
 
 func (r *RequestBuilder) ExecuteRequest(requestURL string) (*http.Response, error) {
-	dialer := &net.Dialer{
+	var clientProxyURL *url.URL
+	proxySource := proxySourceNone
+
+	switch {
+	case r.feedProxyURL != "":
+		var err error
+		clientProxyURL, err = url.Parse(r.feedProxyURL)
+		if err != nil {
+			return nil, fmt.Errorf(`fetcher: invalid feed proxy URL %q: %w`, r.feedProxyURL, err)
+		}
+		proxySource = proxySourceFeed
+	case r.useClientProxy && r.clientProxyURL != nil:
+		clientProxyURL = r.clientProxyURL
+		proxySource = proxySourceApplication
+	case r.proxyRotator != nil && r.proxyRotator.HasProxies():
+		clientProxyURL = r.proxyRotator.GetNextProxy()
+		proxySource = proxySourceRotator
+	}
+
+	directDialer := &net.Dialer{
 		Timeout:   10 * time.Second, // Default is 30s.
 		KeepAlive: 15 * time.Second, // Default is 30s.
+	}
+
+	proxyDialer := &net.Dialer{
+		Timeout:   10 * time.Second, // Default is 30s.
+		KeepAlive: 15 * time.Second, // Default is 30s.
+	}
+
+	// The proxy is resolved with httpproxy rather than http.ProxyFromEnvironment,
+	// which caches the environment on first use. Routing and the trusted hop below
+	// are then decided by the same call.
+	envProxyFunc := httpproxy.FromEnvironment().ProxyFunc()
+
+	trustedProxies := &trustedProxyAddresses{}
+	allowPrivateFeedProxy := config.Opts != nil && config.Opts.FetcherAllowPrivateFeedProxy()
+	if proxySource != proxySourceFeed || allowPrivateFeedProxy {
+		trustedProxies.add(clientProxyURL)
 	}
 
 	// Perform the private-network check inside the dialer's Control callback,
@@ -150,7 +219,7 @@ func (r *RequestBuilder) ExecuteRequest(requestURL string) (*http.Response, erro
 	// that is checked is exactly the IP that will be connected to.
 	allowPrivateNetworks := config.Opts == nil || config.Opts.FetcherAllowPrivateNetworks()
 	if !allowPrivateNetworks {
-		dialer.Control = func(network, address string, c syscall.RawConn) error {
+		directDialer.Control = func(network, address string, c syscall.RawConn) error {
 			host, _, err := net.SplitHostPort(address)
 			if err != nil {
 				return err
@@ -166,12 +235,31 @@ func (r *RequestBuilder) ExecuteRequest(requestURL string) (*http.Response, erro
 	}
 
 	transport := &http.Transport{
-		Proxy: http.ProxyFromEnvironment,
+		Proxy: func(req *http.Request) (*url.URL, error) {
+			proxyURL, err := envProxyFunc(req.URL)
+			if err == nil {
+				trustedProxies.add(proxyURL)
+			}
+
+			return proxyURL, err
+		},
 		// Setting `DialContext` disables HTTP/2, this option forces the transport to try HTTP/2 regardless.
 		ForceAttemptHTTP2: true,
-		DialContext:       dialer.DialContext,
 		MaxIdleConns:      50,               // Default is 100.
 		IdleConnTimeout:   10 * time.Second, // Default is 90s.
+	}
+
+	transport.DialContext = directDialer.DialContext
+	if !allowPrivateNetworks {
+		// Explicitly configured proxies are a trusted hop. Keep the private-network
+		// check for direct requests and redirects, but allow the connection to the proxy itself.
+		transport.DialContext = func(ctx context.Context, network, addr string) (net.Conn, error) {
+			if trustedProxies.contains(normalizeDialAddress(addr)) {
+				return proxyDialer.DialContext(ctx, network, addr)
+			}
+
+			return directDialer.DialContext(ctx, network, addr)
+		}
 	}
 
 	if r.ignoreTLSErrors {
@@ -193,21 +281,6 @@ func (r *RequestBuilder) ExecuteRequest(requestURL string) (*http.Response, erro
 		// https://pkg.go.dev/net/http#hdr-HTTP_2
 		// Programs that must disable HTTP/2 can do so by setting [Transport.TLSNextProto] (for clients) or [Server.TLSNextProto] (for servers) to a non-nil, empty map.
 		transport.TLSNextProto = map[string]func(string, *tls.Conn) http.RoundTripper{}
-	}
-
-	var clientProxyURL *url.URL
-
-	switch {
-	case r.feedProxyURL != "":
-		var err error
-		clientProxyURL, err = url.Parse(r.feedProxyURL)
-		if err != nil {
-			return nil, fmt.Errorf(`fetcher: invalid feed proxy URL %q: %w`, r.feedProxyURL, err)
-		}
-	case r.useClientProxy && r.clientProxyURL != nil:
-		clientProxyURL = r.clientProxyURL
-	case r.proxyRotator != nil && r.proxyRotator.HasProxies():
-		clientProxyURL = r.proxyRotator.GetNextProxy()
 	}
 
 	var clientProxyURLRedacted string
@@ -233,7 +306,11 @@ func (r *RequestBuilder) ExecuteRequest(requestURL string) (*http.Response, erro
 		return nil, err
 	}
 
-	req.Header = r.headers
+	req.Header = r.headers.Clone()
+	if r.cookie != "" && isSameSite(req.URL.Hostname(), r.cookieSiteHost) {
+		req.Header.Set("Cookie", r.cookie)
+	}
+
 	if r.disableCompression {
 		req.Header.Set("Accept-Encoding", "identity")
 	} else {
@@ -260,4 +337,102 @@ func (r *RequestBuilder) ExecuteRequest(requestURL string) (*http.Response, erro
 	))
 
 	return client.Do(req)
+}
+
+// isSameSite reports whether host and siteHost are the same host, or share the
+// same registrable domain, like "www.example.org" and "feeds.example.org".
+// Hosts under a public suffix, like "alice.github.io" and "bob.github.io", are
+// different websites.
+func isSameSite(host, siteHost string) bool {
+	if host == "" || siteHost == "" {
+		return false
+	}
+
+	if host == siteHost {
+		return true
+	}
+
+	domain, err := registrableDomain(host)
+	if err != nil {
+		return false
+	}
+
+	siteDomain, err := registrableDomain(siteHost)
+	if err != nil {
+		return false
+	}
+
+	return domain == siteDomain
+}
+
+// registrableDomain returns the eTLD+1 of host. The public suffix list only
+// matches lowercase ASCII names, so the host is converted to that form first.
+// IP addresses and single-label hosts don't have one.
+func registrableDomain(host string) (string, error) {
+	asciiHost, err := idna.Lookup.ToASCII(host)
+	if err != nil {
+		return "", err
+	}
+
+	return publicsuffix.EffectiveTLDPlusOne(asciiHost)
+}
+
+func normalizeDialAddress(addr string) string {
+	host, port, err := net.SplitHostPort(addr)
+	if err != nil {
+		return ""
+	}
+
+	return net.JoinHostPort(strings.ToLower(host), port)
+}
+
+func normalizeProxyDialAddress(proxyURL *url.URL) string {
+	if proxyURL == nil {
+		return ""
+	}
+
+	port := proxyURL.Port()
+	if port == "" {
+		switch strings.ToLower(proxyURL.Scheme) {
+		case "", "http":
+			port = "80"
+		case "https":
+			port = "443"
+		case "socks5", "socks5h":
+			port = "1080"
+		default:
+			return ""
+		}
+	}
+
+	return net.JoinHostPort(strings.ToLower(proxyURL.Hostname()), port)
+}
+
+// trustedProxyAddresses holds the dial addresses of the proxies used for a
+// request. The proxy taken from the environment is resolved per request URL, so
+// a redirect can select a different proxy than the initial request did.
+type trustedProxyAddresses struct {
+	mu        sync.Mutex
+	addresses []string
+}
+
+func (p *trustedProxyAddresses) add(proxyURL *url.URL) {
+	address := normalizeProxyDialAddress(proxyURL)
+	if address == "" {
+		return
+	}
+
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	if !slices.Contains(p.addresses, address) {
+		p.addresses = append(p.addresses, address)
+	}
+}
+
+func (p *trustedProxyAddresses) contains(address string) bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	return slices.Contains(p.addresses, address)
 }

@@ -6,6 +6,7 @@ package validator // import "miniflux.app/v2/internal/validator"
 import (
 	"testing"
 
+	"miniflux.app/v2/internal/config"
 	"miniflux.app/v2/internal/locale"
 	"miniflux.app/v2/internal/model"
 )
@@ -110,14 +111,35 @@ func TestValidateEntryDirection(t *testing.T) {
 }
 
 func TestValidateEntriesPerPage(t *testing.T) {
-	if err := validateEntriesPerPage(1); err != nil {
-		t.Errorf("expected positive entries per page to pass, got %v", err)
+	for _, value := range []int{1, model.MaxEntryLimit} {
+		if err := validateEntriesPerPage(value); err != nil {
+			t.Errorf("expected %d to pass, got %v", value, err)
+		}
 	}
 
-	for _, value := range []int{0, -1} {
+	for _, value := range []int{0, -1, model.MaxEntryLimit + 1} {
 		if err := validateEntriesPerPage(value); err == nil {
 			t.Errorf("expected %d to fail", value)
 		}
+	}
+}
+
+func TestValidateEntrySortingOrder(t *testing.T) {
+	for _, order := range []string{"published_at", "created_at"} {
+		if err := validateEntrySortingOrder(order); err != nil {
+			t.Errorf("expected valid order %q to pass, got %v", order, err)
+		}
+	}
+
+	// Valid entry-listing orders that are not part of the entry_sorting_order enum.
+	for _, order := range []string{"id", "status", "changed_at", "category_title", "category_id", "title", "author"} {
+		if err := validateEntrySortingOrder(order); err == nil {
+			t.Errorf("expected order %q to be rejected", order)
+		}
+	}
+
+	if err := validateEntrySortingOrder("invalid"); err == nil {
+		t.Error("expected invalid order to fail")
 	}
 }
 
@@ -199,5 +221,53 @@ func TestValidateUserModificationRejectsInvalidNonEmptyFilterRule(t *testing.T) 
 
 	if err := ValidateUserModification(nil, 0, req); err == nil {
 		t.Fatal("expected invalid non-empty filter rules to be rejected")
+	}
+}
+
+func TestValidateUserModificationRejectsPasswordWhenLocalAuthDisabled(t *testing.T) {
+	t.Setenv("DISABLE_LOCAL_AUTH", "1")
+	t.Setenv("OAUTH2_PROVIDER", "oidc")
+	t.Setenv("OAUTH2_CLIENT_ID", "client")
+	t.Setenv("OAUTH2_CLIENT_SECRET", "secret")
+	t.Setenv("OAUTH2_REDIRECT_URL", "https://example.org/oauth2/oidc/callback")
+	t.Setenv("OAUTH2_OIDC_DISCOVERY_ENDPOINT", "https://example.org")
+
+	parsedOptions, err := config.NewConfigParser().ParseEnvironmentVariables()
+	if err != nil {
+		t.Fatalf("Unable to configure test options: %v", err)
+	}
+
+	previousOptions := config.Opts
+	config.Opts = parsedOptions
+	t.Cleanup(func() {
+		config.Opts = previousOptions
+	})
+
+	req := &model.UserModificationRequest{
+		Password: new("newpassword"),
+	}
+
+	if err := ValidateUserModification(nil, 0, req); err == nil {
+		t.Fatal("expected password modification to be rejected when local auth is disabled")
+	}
+
+	req = &model.UserModificationRequest{
+		Theme: new("light_serif"),
+	}
+
+	if err := ValidateUserModification(nil, 0, req); err != nil {
+		t.Fatalf("expected non-password modification to be accepted, got %v", err)
+	}
+}
+
+func TestValidateUserModificationRejectsInvalidUsername(t *testing.T) {
+	for _, username := range []string{"invalid username", "user/name", "<script>"} {
+		req := &model.UserModificationRequest{
+			Username: new(username),
+		}
+
+		if err := ValidateUserModification(nil, 0, req); err == nil {
+			t.Errorf("expected username %q to be rejected", username)
+		}
 	}
 }

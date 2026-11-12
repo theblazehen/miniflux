@@ -1092,6 +1092,24 @@ func TestParseInvalidJSON(t *testing.T) {
 	}
 }
 
+func TestParseFeedWithUTF8BOM(t *testing.T) {
+	data := "\xEF\xBB\xBF" + `{
+		"version": "https://jsonfeed.org/version/1.1",
+		"title": "My Example Feed",
+		"home_page_url": "https://example.org/",
+		"items": []
+	}`
+
+	feed, err := Parse("https://example.org/feed.json", bytes.NewBufferString(data))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if feed.Title != "My Example Feed" {
+		t.Errorf("Incorrect title, got: %s", feed.Title)
+	}
+}
+
 func TestParseNullJSONFeed(t *testing.T) {
 	data := `null`
 	feed, err := Parse("https://example.org/feed.json", bytes.NewBufferString(data))
@@ -1101,5 +1119,133 @@ func TestParseNullJSONFeed(t *testing.T) {
 
 	if feed == nil {
 		t.Fatalf("Feed should not be nil")
+	}
+}
+
+func TestParseFeedWithLanguage(t *testing.T) {
+	data := `{
+		"version": "https://jsonfeed.org/version/1.1",
+		"title": "Example",
+		"home_page_url": "https://example.org/",
+		"feed_url": "https://example.org/feed.json",
+		"language": "en-US",
+		"items": []
+	}`
+
+	feed, err := Parse("https://example.org/feed.json", bytes.NewBufferString(data))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if feed.Language != "en-us" {
+		t.Errorf("Incorrect language, got: %q", feed.Language)
+	}
+}
+
+func TestParseFeedWithoutLanguage(t *testing.T) {
+	data := `{
+		"version": "https://jsonfeed.org/version/1.1",
+		"title": "Example",
+		"home_page_url": "https://example.org/",
+		"feed_url": "https://example.org/feed.json",
+		"items": []
+	}`
+
+	feed, err := Parse("https://example.org/feed.json", bytes.NewBufferString(data))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if feed.Language != "" {
+		t.Errorf("Expected empty language, got: %q", feed.Language)
+	}
+}
+
+func TestParseItemWithLanguage(t *testing.T) {
+	data := `{
+		"version": "https://jsonfeed.org/version/1.1",
+		"title": "Example",
+		"home_page_url": "https://example.org/",
+		"feed_url": "https://example.org/feed.json",
+		"language": "en-US",
+		"items": [
+			{
+				"id": "1",
+				"url": "https://example.org/item",
+				"content_text": "Bonjour",
+				"language": "fr-FR"
+			}
+		]
+	}`
+
+	feed, err := Parse("https://example.org/feed.json", bytes.NewBufferString(data))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(feed.Entries) != 1 {
+		t.Fatalf("Expected 1 entry, got: %d", len(feed.Entries))
+	}
+
+	if feed.Entries[0].Language != "fr-fr" {
+		t.Errorf("Incorrect entry language, got: %q", feed.Entries[0].Language)
+	}
+}
+
+func TestParseItemWithoutLanguageInheritsFeedLanguage(t *testing.T) {
+	data := `{
+		"version": "https://jsonfeed.org/version/1.1",
+		"title": "Example",
+		"home_page_url": "https://example.org/",
+		"feed_url": "https://example.org/feed.json",
+		"language": "en-US",
+		"items": [
+			{
+				"id": "1",
+				"url": "https://example.org/item",
+				"content_text": "Hello"
+			}
+		]
+	}`
+
+	feed, err := Parse("https://example.org/feed.json", bytes.NewBufferString(data))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(feed.Entries) != 1 {
+		t.Fatalf("Expected 1 entry, got: %d", len(feed.Entries))
+	}
+
+	if feed.Entries[0].Language != "en-us" {
+		t.Errorf("Expected entry to inherit feed language, got: %q", feed.Entries[0].Language)
+	}
+}
+
+func TestParseItemWithPlainTextContentContainingHTMLCharacters(t *testing.T) {
+	data := `{
+		"version": "https://jsonfeed.org/version/1.1",
+		"title": "Example",
+		"home_page_url": "https://example.org/",
+		"feed_url": "https://example.org/feed.json",
+		"items": [
+			{
+				"id": "1",
+				"url": "https://example.org/1",
+				"content_text": "Use <div> literally: a & b < c"
+			}
+		]
+	}`
+
+	feed, err := Parse("https://example.org/feed.json", bytes.NewBufferString(data))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// content_text is plain text (JSON Feed 1.1), so it must be HTML-escaped
+	// before being stored as HTML, otherwise the sanitizer drops the markup.
+	want := "Use &lt;div&gt; literally: a &amp; b &lt; c"
+	if feed.Entries[0].Content != want {
+		t.Errorf("Incorrect entry content, got: %q, want: %q", feed.Entries[0].Content, want)
 	}
 }

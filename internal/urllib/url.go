@@ -12,16 +12,52 @@ import (
 	"strings"
 )
 
-var rfc6598SharedAddressSpacePrefix = netip.MustParsePrefix("100.64.0.0/10")
+var (
+	rfc6598SharedAddressSpacePrefix = netip.MustParsePrefix("100.64.0.0/10")
+	nat64WellKnownPrefix            = netip.MustParsePrefix("64:ff9b::/96")
+	sixToFourPrefix                 = netip.MustParsePrefix("2002::/16")
+	nonPublicIPPrefixes             = []netip.Prefix{
+		netip.MustParsePrefix("0.0.0.0/8"), // "This network" (RFC 6890).
+		netip.MustParsePrefix("168.63.129.16/32"),
+		netip.MustParsePrefix("192.0.0.192/32"),
+		netip.MustParsePrefix("198.18.0.0/15"),
+		netip.MustParsePrefix("240.0.0.0/4"), // Reserved and limited broadcast (RFC 6890).
+		netip.MustParsePrefix("::/96"),       // Deprecated IPv4-compatible IPv6 addresses (RFC 4291).
+		netip.MustParsePrefix("fec0::/10"),
+	}
+)
 
 // IsRelativePath reports whether the link is a relative path (no scheme, host, or scheme-relative // form).
 func IsRelativePath(link string) bool {
 	if link == "" {
 		return false
 	}
+
+	// Reject surrounding whitespace: browsers strip leading and trailing C0
+	// control characters and spaces before parsing a target, while Go's url.Parse
+	// treats spaces as path characters. Without this check, a target like
+	// " //evil.com" is accepted here and becomes //evil.com in the browser.
+	if link != strings.TrimSpace(link) {
+		return false
+	}
+
+	// Reject backslashes: Go's url.Parse treats them as ordinary path
+	// characters, but browsers normalize them to forward slashes, so a target
+	// like "/\evil.com" would parse as relative here yet redirect to
+	// //evil.com in the browser (open redirect).
+	if strings.Contains(link, "\\") {
+		return false
+	}
+
+	// Reject scheme-relative URLs, including forms with extra leading slashes
+	// that url.Parse treats as a relative path but browsers resolve externally.
+	if strings.HasPrefix(link, "//") {
+		return false
+	}
+
 	if parsedURL, err := url.Parse(link); err == nil {
-		// Only allow relative paths (not scheme-relative URLs like //example.org)
-		// and ensure the URL doesn't have a host component
+		// Only allow relative paths and ensure the URL doesn't have a host
+		// component.
 		if !parsedURL.IsAbs() && parsedURL.Host == "" && parsedURL.Scheme == "" {
 			return true
 		}
@@ -34,6 +70,11 @@ func hasHTTPPrefix(inputURL string) bool {
 	return strings.HasPrefix(inputURL, "https://") || strings.HasPrefix(inputURL, "http://")
 }
 
+// hasSOCKSPrefix reports whether the URL string begins with an SOCKS5 or SOCKS5H scheme.
+func hasSOCKSPrefix(inputURL string) bool {
+	return strings.HasPrefix(inputURL, "socks5://") || strings.HasPrefix(inputURL, "socks5h://")
+}
+
 // IsAbsoluteURL reports whether the link is absolute and starts with an HTTP or HTTPS scheme.
 func IsAbsoluteURL(inputURL string) bool {
 	if !hasHTTPPrefix(inputURL) {
@@ -44,6 +85,18 @@ func IsAbsoluteURL(inputURL string) bool {
 		return false
 	}
 	return parsedURL.IsAbs()
+}
+
+// IsValidProxyURL reports whether the url is absolute, has a host and starts with an HTTP, HTTPS, SOCKS5 or SOCKS5H scheme.
+func IsValidProxyURL(inputURL string) bool {
+	if !hasHTTPPrefix(inputURL) && !hasSOCKSPrefix(inputURL) {
+		return false
+	}
+	parsedURL, err := url.Parse(inputURL)
+	if err != nil {
+		return false
+	}
+	return parsedURL.IsAbs() && parsedURL.Host != ""
 }
 
 // resolveToAbsoluteURL resolves a relative URL using a base URL, parsing the base only if needed.
@@ -144,11 +197,6 @@ func JoinBaseURLAndPath(baseURL, path string) (string, error) {
 		return "", errors.New("empty path")
 	}
 
-	_, err := url.Parse(baseURL)
-	if err != nil {
-		return "", fmt.Errorf("invalid base URL: %w", err)
-	}
-
 	finalURL, err := url.JoinPath(baseURL, path)
 	if err != nil {
 		return "", fmt.Errorf("unable to join base URL %s and path %s: %w", baseURL, path, err)
@@ -157,21 +205,41 @@ func JoinBaseURLAndPath(baseURL, path string) (string, error) {
 	return finalURL, nil
 }
 
-// IsNonPublicIP returns true if the given IP is private, loopback,
-// link-local, multicast, or unspecified.
+// IsNonPublicIP returns true if the given IP is not safe to access from the network.
 func IsNonPublicIP(ip net.IP) bool {
-	if ip == nil {
+	addr, ok := netip.AddrFromSlice(ip)
+	if !ok {
 		return true
 	}
 
-	if addr, ok := netip.AddrFromSlice(ip); ok && rfc6598SharedAddressSpacePrefix.Contains(addr.Unmap()) {
+	return isNonPublicAddr(addr.Unmap())
+}
+
+func isNonPublicAddr(addr netip.Addr) bool {
+	if nat64WellKnownPrefix.Contains(addr) {
+		addrBytes := addr.As16()
+		return isNonPublicAddr(netip.AddrFrom4([4]byte(addrBytes[12:])))
+	}
+
+	if sixToFourPrefix.Contains(addr) {
+		addrBytes := addr.As16()
+		return isNonPublicAddr(netip.AddrFrom4([4]byte(addrBytes[2:6])))
+	}
+
+	if rfc6598SharedAddressSpacePrefix.Contains(addr) {
 		return true
 	}
 
-	return ip.IsPrivate() ||
-		ip.IsLoopback() ||
-		ip.IsLinkLocalUnicast() ||
-		ip.IsLinkLocalMulticast() ||
-		ip.IsMulticast() ||
-		ip.IsUnspecified()
+	for _, prefix := range nonPublicIPPrefixes {
+		if prefix.Contains(addr) {
+			return true
+		}
+	}
+
+	return addr.IsPrivate() ||
+		addr.IsLoopback() ||
+		addr.IsLinkLocalUnicast() ||
+		addr.IsLinkLocalMulticast() ||
+		addr.IsMulticast() ||
+		addr.IsUnspecified()
 }

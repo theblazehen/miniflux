@@ -4,12 +4,12 @@
 package ui // import "miniflux.app/v2/internal/ui"
 
 import (
+	"errors"
 	"net/http"
 
 	"miniflux.app/v2/internal/http/request"
 	"miniflux.app/v2/internal/http/response"
 	"miniflux.app/v2/internal/ui/form"
-	"miniflux.app/v2/internal/ui/session"
 	"miniflux.app/v2/internal/ui/view"
 )
 
@@ -38,19 +38,25 @@ func (h *handler) showEditUserPage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Users change their own username and password on the authentication page.
+	if selectedUser.ID == user.ID {
+		response.HTMLBadRequest(w, r, errors.New("you cannot edit yourself"))
+		return
+	}
+
 	userForm := &form.UserForm{
 		Username: selectedUser.Username,
 		IsAdmin:  selectedUser.IsAdmin,
 	}
 
-	sess := session.New(h.store, request.SessionID(r))
-	view := view.New(h.tpl, r, sess)
+	view := view.New(h.tpl, r)
 	view.Set("form", userForm)
 	view.Set("selected_user", selectedUser)
 	view.Set("menu", "settings")
 	view.Set("user", user)
-	view.Set("countUnread", h.store.CountUnreadEntries(user.ID))
-	view.Set("countErrorFeeds", h.store.CountUserFeedsWithErrors(user.ID))
+	navMetadata, _ := h.store.GetNavMetadata(user.ID)
+	view.Set("countUnread", navMetadata.CountUnread)
+	view.Set("countErrorFeeds", navMetadata.CountErrorFeeds)
 
 	response.HTML(w, r, view.Render("edit_user"))
 }
