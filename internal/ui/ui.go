@@ -105,6 +105,7 @@ func Serve(store *storage.Storage, pool *worker.Pool, discussions *discussion.Fi
 	mux.HandleFunc("POST /entry/enclosure/{enclosureID}/save-progression", handler.saveEnclosureProgression)
 	mux.HandleFunc("POST /entry/download/{entryID}", handler.fetchContent)
 	mux.HandleFunc("POST /entry/star/{entryID}", handler.toggleStarred)
+	mux.HandleFunc("GET /entry/{entryID}", handler.showUnreadEntryPage)
 	mux.HandleFunc("GET /entry/{entryID}/discussions", handler.fetchDiscussions)
 
 	// Media proxy.

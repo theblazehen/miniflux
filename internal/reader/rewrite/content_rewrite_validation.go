@@ -4,6 +4,7 @@
 package rewrite // import "miniflux.app/v2/internal/reader/rewrite"
 
 import (
+	"fmt"
 	"regexp"
 	"text/scanner"
 
@@ -29,6 +30,25 @@ type RuleError struct {
 	Rule    string
 	Token   string
 	Message string
+}
+
+// Error implements the error interface: it describes which rule is invalid,
+// why, and where it was found in the rule string.
+func (e RuleError) Error() string {
+	msg := e.Message
+	if msg == "" {
+		msg = "invalid rewrite rule"
+	}
+	if e.Rule != "" {
+		msg = fmt.Sprintf("rewrite rule %q: %s", e.Rule, msg)
+	}
+	if e.Token != "" {
+		msg = fmt.Sprintf("%s (%q)", msg, e.Token)
+	}
+	if e.Pos.IsValid() {
+		msg = fmt.Sprintf("line %d, column %d: %s", e.Pos.Line, e.Pos.Column, msg)
+	}
+	return msg
 }
 
 // validateParsedRules checks parsed rules against knownRules for unknown names
