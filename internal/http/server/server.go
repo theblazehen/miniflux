@@ -21,7 +21,7 @@ import (
 	"golang.org/x/crypto/acme/autocert"
 )
 
-func StartWebServer(store *storage.Storage, pool *worker.Pool) []*http.Server {
+func StartWebServer(store *storage.Storage, pool *worker.Pool) ([]*http.Server, func()) {
 	var servers []*http.Server
 
 	autocertTLSConfig, challengeServer := setupAutocert(store)
@@ -39,14 +39,28 @@ func StartWebServer(store *storage.Storage, pool *worker.Pool) []*http.Server {
 		config.Opts.SetHTTPSValue(true)
 	}
 
-	for _, t := range targets {
-		srv := &http.Server{
-			Addr:         t.address,
-			ReadTimeout:  config.Opts.HTTPServerTimeout(),
-			WriteTimeout: config.Opts.HTTPServerTimeout(),
-			IdleTimeout:  config.Opts.HTTPServerTimeout(),
-			Handler:      newRouter(store, pool),
+	// Create a single certificate loader shared by all TLS servers
+	// that use the same cert/key pair.
+	var certLoader *certificateLoader
+	if certFile != "" && keyFile != "" {
+		hasTLSTarget := false
+		for _, t := range targets {
+			if t.mode == modeTLS || t.mode == modeUnixSocketTLS {
+				hasTLSTarget = true
+				break
+			}
 		}
+		if hasTLSTarget {
+			var err error
+			certLoader, err = newCertificateLoader(certFile, keyFile)
+			if err != nil {
+				printErrorAndExit("Unable to load TLS certificate from %s / %s: %v", certFile, keyFile, err)
+			}
+		}
+	}
+
+	for _, t := range targets {
+		srv := newHTTPServer(t.address, newRouter(store, pool))
 
 		switch t.mode {
 		case modeSystemd:
@@ -54,11 +68,11 @@ func StartWebServer(store *storage.Storage, pool *worker.Pool) []*http.Server {
 		case modeUnixSocket:
 			startUnixSocketServer(srv, t.address)
 		case modeUnixSocketTLS:
-			startUnixSocketTLSServer(srv, t.address, t.certFile, t.keyFile)
+			startUnixSocketTLSServer(srv, t.address, certLoader)
 		case modeAutocertTLS:
 			startAutoCertTLSServer(srv, autocertTLSConfig)
 		case modeTLS:
-			startTLSServer(srv, t.certFile, t.keyFile)
+			startTLSServer(srv, certLoader)
 		default:
 			startHTTPServer(srv)
 		}
@@ -66,7 +80,11 @@ func StartWebServer(store *storage.Storage, pool *worker.Pool) []*http.Server {
 		servers = append(servers, srv)
 	}
 
-	return servers
+	certReloadFn := func() {}
+	if certLoader != nil {
+		certReloadFn = certLoader.Reload
+	}
+	return servers, certReloadFn
 }
 
 type listenerMode int
@@ -81,10 +99,8 @@ const (
 )
 
 type listenTarget struct {
-	address  string
-	mode     listenerMode
-	certFile string
-	keyFile  string
+	address string
+	mode    listenerMode
 }
 
 func determineListenTargets(addresses []string, certDomain, certFile, keyFile string) []listenTarget {
@@ -110,13 +126,13 @@ func determineListenTargets(addresses []string, certDomain, certFile, keyFile st
 
 		switch {
 		case isUnix && hasCertFiles:
-			targets = append(targets, listenTarget{address: addr, mode: modeUnixSocketTLS, certFile: certFile, keyFile: keyFile})
+			targets = append(targets, listenTarget{address: addr, mode: modeUnixSocketTLS})
 		case isUnix:
 			targets = append(targets, listenTarget{address: addr, mode: modeUnixSocket})
 		case hasAutocert && (addr == ":https" || (i == 0 && strings.Contains(addr, ":"))):
 			targets = append(targets, listenTarget{address: addr, mode: modeAutocertTLS})
 		case hasCertFiles:
-			targets = append(targets, listenTarget{address: addr, mode: modeTLS, certFile: certFile, keyFile: keyFile})
+			targets = append(targets, listenTarget{address: addr, mode: modeTLS})
 		default:
 			targets = append(targets, listenTarget{address: addr, mode: modeHTTP})
 		}
@@ -133,6 +149,19 @@ func anyTLS(targets []listenTarget) bool {
 		}
 	}
 	return false
+}
+
+func newHTTPServer(address string, handler http.Handler) *http.Server {
+	timeout := config.Opts.HTTPServerTimeout()
+
+	return &http.Server{
+		Addr:              address,
+		ReadTimeout:       timeout,
+		WriteTimeout:      timeout,
+		IdleTimeout:       timeout,
+		ReadHeaderTimeout: timeout,
+		Handler:           handler,
+	}
 }
 
 func setupAutocert(store *storage.Storage) (*tls.Config, *http.Server) {
@@ -153,10 +182,7 @@ func setupAutocert(store *storage.Storage) (*tls.Config, *http.Server) {
 	}
 	tlsConfig.GetCertificate = certManager.GetCertificate
 
-	challengeServer := &http.Server{
-		Handler: certManager.HTTPHandler(nil),
-		Addr:    ":http",
-	}
+	challengeServer := newHTTPServer(":http", certManager.HTTPHandler(nil))
 
 	slog.Info("Starting ACME HTTP challenge server", slog.String("address", challengeServer.Addr))
 	go func() {
@@ -194,16 +220,20 @@ func startUnixSocketServer(server *http.Server, socketFile string) {
 	}()
 }
 
-func startUnixSocketTLSServer(server *http.Server, socketFile, certFile, keyFile string) {
+func startUnixSocketTLSServer(server *http.Server, socketFile string, certLoader *certificateLoader) {
+	server.TLSConfig = &tls.Config{
+		GetCertificate: certLoader.getCertificate,
+		// NextProtos intentionally nil — ServeTLS auto-configures it
+		// based on the http2server GODEBUG setting.
+	}
+
 	listener := createUnixSocketListener(socketFile)
 
 	go func() {
 		slog.Info("Starting TLS server using a Unix socket",
 			slog.String("socket", socketFile),
-			slog.String("cert_file", certFile),
-			slog.String("key_file", keyFile),
 		)
-		if err := server.ServeTLS(listener, certFile, keyFile); err != http.ErrServerClosed {
+		if err := server.ServeTLS(listener, "", ""); err != http.ErrServerClosed {
 			printErrorAndExit("TLS Unix socket server failed to start on %s: %v", socketFile, err)
 		}
 	}()
@@ -218,7 +248,7 @@ func createUnixSocketListener(socketFile string) net.Listener {
 		printErrorAndExit(`Server failed to listen on Unix socket %s: %v`, socketFile, err)
 	}
 
-	if err := os.Chmod(socketFile, 0666); err != nil {
+	if err := os.Chmod(socketFile, 0660); err != nil {
 		printErrorAndExit(`Unable to change socket permission for %s: %v`, socketFile, err)
 	}
 
@@ -242,14 +272,23 @@ func startAutoCertTLSServer(server *http.Server, autoTLSConfig *tls.Config) {
 	}()
 }
 
-func startTLSServer(server *http.Server, certFile, keyFile string) {
+func startTLSServer(server *http.Server, certLoader *certificateLoader) {
+	server.TLSConfig = &tls.Config{
+		GetCertificate: certLoader.getCertificate,
+		// NextProtos intentionally nil — ServeTLS auto-configures it
+		// based on the http2server GODEBUG setting.
+	}
+
+	listener, err := net.Listen("tcp", server.Addr)
+	if err != nil {
+		printErrorAndExit("TLS server failed to listen on %s: %v", server.Addr, err)
+	}
+
 	go func() {
 		slog.Info("Starting TLS server using a certificate",
 			slog.String("listen_address", server.Addr),
-			slog.String("cert_file", certFile),
-			slog.String("key_file", keyFile),
 		)
-		if err := server.ListenAndServeTLS(certFile, keyFile); err != http.ErrServerClosed {
+		if err := server.ServeTLS(listener, "", ""); err != http.ErrServerClosed {
 			printErrorAndExit("TLS server failed to start on %s: %v", server.Addr, err)
 		}
 	}()

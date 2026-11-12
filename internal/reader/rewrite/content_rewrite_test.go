@@ -21,7 +21,10 @@ func TestParseRules(t *testing.T) {
 		{name: "remove", args: []string{".spam, .ads:not(.keep)"}},
 	}
 
-	actual := parseRules(rulesText)
+	actual, errs := parseRules(rulesText)
+	if len(errs) != 0 {
+		t.Errorf(`Unexpected errors while parsing rules: %v`, errs)
+	}
 
 	if !reflect.DeepEqual(expected, actual) {
 		t.Errorf(`Parsed rules do not match expected rules: got %v instead of %v`, actual, expected)
@@ -123,6 +126,26 @@ func TestRewriteIncorrectYoutubeLink(t *testing.T) {
 
 	if !reflect.DeepEqual(testEntry, controlEntry) {
 		t.Errorf(`Not expected output: got "%+v" instead of "%+v"`, testEntry, controlEntry)
+	}
+}
+
+func TestRewriteYoutubeLinkRejectsLookalikeDomain(t *testing.T) {
+	config.Opts = config.NewConfigOptions()
+
+	controlEntry := &model.Entry{
+		URL:     "https://notyoutube.com/watch?v=1234",
+		Title:   `A title`,
+		Content: `Video Description`,
+	}
+	testEntry := &model.Entry{
+		URL:     "https://notyoutube.com/watch?v=1234",
+		Title:   `A title`,
+		Content: `Video Description`,
+	}
+	ApplyContentRewriteRules(testEntry, `add_youtube_video`)
+
+	if !reflect.DeepEqual(testEntry, controlEntry) {
+		t.Errorf(`A domain that merely ends in "youtube.com" must not be treated as YouTube: got "%+v" instead of "%+v"`, testEntry, controlEntry)
 	}
 }
 
@@ -832,6 +855,60 @@ func TestRewriteAddCastopodEpisode(t *testing.T) {
 	}
 }
 
+func TestRewriteAddEnclosureLinks(t *testing.T) {
+	controlEntry := &model.Entry{
+		URL:   "https://example.org/article",
+		Title: `A title`,
+		Content: `Article Content<hr/><ul>` +
+			`<li><a href="https://example.org/episode.mp3?token=a&amp;b=c">https://example.org/episode.mp3?token=a&amp;b=c</a></li>` +
+			`<li><a href="https://example.org/video.mp4">https://example.org/video.mp4</a></li></ul>`,
+		Enclosures: model.EnclosureList{
+			{URL: "https://example.org/episode.mp3?token=a&b=c", MimeType: "audio/mpeg"},
+			{URL: "https://example.org/video.mp4", MimeType: "video/mp4"},
+			{URL: "", MimeType: "application/pdf"},
+		},
+	}
+	testEntry := &model.Entry{
+		URL:     "https://example.org/article",
+		Title:   `A title`,
+		Content: `Article Content`,
+		Enclosures: model.EnclosureList{
+			{URL: "https://example.org/episode.mp3?token=a&b=c", MimeType: "audio/mpeg"},
+			{URL: "https://example.org/video.mp4", MimeType: "video/mp4"},
+			{URL: "", MimeType: "application/pdf"},
+		},
+	}
+	ApplyContentRewriteRules(testEntry, `add_enclosure_links`)
+
+	if !reflect.DeepEqual(testEntry, controlEntry) {
+		t.Errorf(`Not expected output: got "%+v" instead of "%+v"`, testEntry, controlEntry)
+	}
+}
+
+func TestRewriteAddEnclosureLinksWithoutEnclosureURL(t *testing.T) {
+	controlEntry := &model.Entry{
+		URL:     "https://example.org/article",
+		Title:   `A title`,
+		Content: `Article Content`,
+		Enclosures: model.EnclosureList{
+			{URL: "", MimeType: "audio/mpeg"},
+		},
+	}
+	testEntry := &model.Entry{
+		URL:     "https://example.org/article",
+		Title:   `A title`,
+		Content: `Article Content`,
+		Enclosures: model.EnclosureList{
+			{URL: "", MimeType: "audio/mpeg"},
+		},
+	}
+	ApplyContentRewriteRules(testEntry, `add_enclosure_links`)
+
+	if !reflect.DeepEqual(testEntry, controlEntry) {
+		t.Errorf(`Not expected output: got "%+v" instead of "%+v"`, testEntry, controlEntry)
+	}
+}
+
 func TestRewriteBase64Decode(t *testing.T) {
 	controlEntry := &model.Entry{
 		URL:     "https://example.org/article",
@@ -896,6 +973,29 @@ func TestRewriteRemoveTables(t *testing.T) {
 		URL:     "https://example.org/article",
 		Title:   `A title`,
 		Content: `<table class="container"><tbody><tr><td><p>Test</p><table class="row"><tbody><tr><td><p>Hello World!</p></td><td><p>Test</p></td></tr></tbody></table></td></tr></tbody></table>`,
+	}
+	ApplyContentRewriteRules(testEntry, `remove_tables`)
+
+	if !reflect.DeepEqual(testEntry, controlEntry) {
+		t.Errorf(`Not expected output: got "%+v" instead of "%+v"`, testEntry, controlEntry)
+	}
+}
+
+func TestRewriteRemoveTablesKeepsSurroundingContentOrder(t *testing.T) {
+	// Regression test for https://github.com/miniflux/v2/issues/3110
+	// When a table is unwrapped, its content and the content surrounding it
+	// must keep their original document order. Previously the unwrapped
+	// content was appended to the end of the parent, so anything after the
+	// table (and the table content itself) ended up reordered.
+	controlEntry := &model.Entry{
+		URL:     "https://example.org/article",
+		Title:   `A title`,
+		Content: `<h1>Header</h1><p>Intro</p><img src="https://example.org/image.png"/><p>Outro</p>`,
+	}
+	testEntry := &model.Entry{
+		URL:     "https://example.org/article",
+		Title:   `A title`,
+		Content: `<h1>Header</h1><table><tbody><tr><td><p>Intro</p><img src="https://example.org/image.png"/></td></tr></tbody></table><p>Outro</p>`,
 	}
 	ApplyContentRewriteRules(testEntry, `remove_tables`)
 

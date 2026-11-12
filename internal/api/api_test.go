@@ -10,6 +10,7 @@ import (
 	"runtime"
 	"testing"
 
+	"miniflux.app/v2/internal/config"
 	"miniflux.app/v2/internal/version"
 )
 
@@ -91,6 +92,91 @@ func TestVersionHandler(t *testing.T) {
 	}
 }
 
+func TestGetEntryIDsHandlerRequiresAuthentication(t *testing.T) {
+	handler := NewHandler(nil, nil, nil)
+
+	r := httptest.NewRequest(http.MethodGet, "/v1/entries/ids", nil)
+	w := httptest.NewRecorder()
+
+	handler.ServeHTTP(w, r)
+
+	if got := w.Code; got != http.StatusUnauthorized {
+		t.Fatalf(`Unexpected status code, got %d instead of %d`, got, http.StatusUnauthorized)
+	}
+}
+
+func TestGetEntryIDsHandlerRejectsInvalidStarredParam(t *testing.T) {
+	handler := NewHandler(nil, nil, nil)
+
+	r := httptest.NewRequest(http.MethodGet, "/v1/entries/ids?starred=maybe", nil)
+	w := httptest.NewRecorder()
+
+	handler.ServeHTTP(w, r)
+
+	// Unauthenticated request should be rejected before param validation.
+	if got := w.Code; got != http.StatusUnauthorized {
+		t.Fatalf(`Unexpected status code, got %d instead of %d`, got, http.StatusUnauthorized)
+	}
+}
+
+func TestGetEntryIDsHandlerRejectsInvalidStatusParam(t *testing.T) {
+	handler := NewHandler(nil, nil, nil)
+
+	r := httptest.NewRequest(http.MethodGet, "/v1/entries/ids?status=invalid", nil)
+	w := httptest.NewRecorder()
+
+	handler.ServeHTTP(w, r)
+
+	// Unauthenticated request should be rejected before param validation.
+	if got := w.Code; got != http.StatusUnauthorized {
+		t.Fatalf(`Unexpected status code, got %d instead of %d`, got, http.StatusUnauthorized)
+	}
+}
+
+func TestParseEntryIDsParamsDefaults(t *testing.T) {
+	r := httptest.NewRequest(http.MethodGet, "/v1/entries/ids", nil)
+	limit, offset := parseEntryIDsParams(r)
+
+	if limit != 10000 {
+		t.Fatalf(`Expected default limit 10000, got %d`, limit)
+	}
+
+	if offset != 0 {
+		t.Fatalf(`Expected default offset 0, got %d`, offset)
+	}
+}
+
+func TestParseEntryIDsParamsCustomValues(t *testing.T) {
+	r := httptest.NewRequest(http.MethodGet, "/v1/entries/ids?limit=500&offset=100", nil)
+	limit, offset := parseEntryIDsParams(r)
+
+	if limit != 500 {
+		t.Fatalf(`Expected limit 500, got %d`, limit)
+	}
+
+	if offset != 100 {
+		t.Fatalf(`Expected offset 100, got %d`, offset)
+	}
+}
+
+func TestParseEntryIDsParamsLimitCappedAtMaximum(t *testing.T) {
+	r := httptest.NewRequest(http.MethodGet, "/v1/entries/ids?limit=99999", nil)
+	limit, _ := parseEntryIDsParams(r)
+
+	if limit != 10000 {
+		t.Fatalf(`Expected limit capped at 10000, got %d`, limit)
+	}
+}
+
+func TestParseEntryIDsParamsZeroLimitUsesDefault(t *testing.T) {
+	r := httptest.NewRequest(http.MethodGet, "/v1/entries/ids?limit=0", nil)
+	limit, _ := parseEntryIDsParams(r)
+
+	if limit != 10000 {
+		t.Fatalf(`Expected zero limit to use default 10000, got %d`, limit)
+	}
+}
+
 func TestNewHandlerSupportsBasePathStripping(t *testing.T) {
 	scenarios := []struct {
 		name   string
@@ -114,5 +200,37 @@ func TestNewHandlerSupportsBasePathStripping(t *testing.T) {
 				t.Fatalf(`Unexpected status code, got %d instead of %d`, got, http.StatusNoContent)
 			}
 		})
+	}
+}
+
+func TestBasicAuthIsRejectedWhenLocalAuthDisabled(t *testing.T) {
+	t.Setenv("DISABLE_LOCAL_AUTH", "1")
+	t.Setenv("OAUTH2_PROVIDER", "oidc")
+	t.Setenv("OAUTH2_CLIENT_ID", "client")
+	t.Setenv("OAUTH2_CLIENT_SECRET", "secret")
+	t.Setenv("OAUTH2_REDIRECT_URL", "https://example.org/oauth2/oidc/callback")
+	t.Setenv("OAUTH2_OIDC_DISCOVERY_ENDPOINT", "https://example.org")
+
+	parsedOptions, err := config.NewConfigParser().ParseEnvironmentVariables()
+	if err != nil {
+		t.Fatalf("Unable to configure test options: %v", err)
+	}
+
+	previousOptions := config.Opts
+	config.Opts = parsedOptions
+	t.Cleanup(func() {
+		config.Opts = previousOptions
+	})
+
+	handler := NewHandler(nil, nil, nil)
+
+	r := httptest.NewRequest(http.MethodGet, "/v1/me", nil)
+	r.SetBasicAuth("admin", "password")
+	w := httptest.NewRecorder()
+
+	handler.ServeHTTP(w, r)
+
+	if got := w.Code; got != http.StatusUnauthorized {
+		t.Fatalf(`Unexpected status code, got %d instead of %d`, got, http.StatusUnauthorized)
 	}
 }

@@ -58,7 +58,7 @@ func (c *Client) attachTags(entryID string) error {
 		return nil
 	}
 
-	tagItems := make([]tagItem, 0)
+	tagItems := make([]tagItem, 0, strings.Count(c.tags, ",")+1)
 	for tag := range strings.SplitSeq(c.tags, ",") {
 		if trimmedTag := strings.TrimSpace(tag); trimmedTag != "" {
 			tagItems = append(tagItems, tagItem{TagName: trimmedTag})
@@ -134,10 +134,6 @@ func (c *Client) SaveURL(entryURL string) error {
 	responseBody, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return fmt.Errorf("karakeep: failed to parse response: %s", err)
-	}
-
-	if resp.Header.Get("Content-Type") != "application/json" {
-		return fmt.Errorf("karakeep: unexpected content type response: %s", resp.Header.Get("Content-Type"))
 	}
 
 	if resp.StatusCode != http.StatusCreated {
