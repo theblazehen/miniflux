@@ -39,6 +39,10 @@ type Payload struct {
 	Message  string         `json:"message"`
 	Priority int            `json:"priority,omitempty"`
 	Extras   map[string]any `json:"extras,omitempty"`
+	// Token repeats the application token that is also sent in the X-Gotify-Key
+	// header. Gotify ignores fields it does not know, so this only makes the
+	// configured token visible to servers and proxies that record the body.
+	Token string `json:"token,omitempty"`
 }
 
 // Validate validates the Gotify message payload according to the Gotify schema.
@@ -64,6 +68,7 @@ func (c *Client) SendMessage(title, message string, priority int, extras map[str
 		Message:  message,
 		Priority: priority,
 		Extras:   extras,
+		Token:    c.token,
 	}
 
 	if err := msg.Validate(); err != nil {
@@ -79,9 +84,13 @@ func (c *Client) SendMessage(title, message string, priority int, extras map[str
 		}
 	}
 
+	// Gotify authenticates the request with the X-Gotify-Key header. The token is
+	// also repeated in the payload (see Payload.Token) so that it stays visible to
+	// servers and proxies that only record the request body.
 	response, err := client.NewRequestBuilder(apiEndpoint).
 		WithMethod(http.MethodPost).
 		WithHeader("X-Gotify-Key", c.token).
+		WithLoopbackAllowed().
 		WithJSON(msg).
 		Do()
 	if err != nil {

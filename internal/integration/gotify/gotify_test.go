@@ -520,6 +520,68 @@ func TestNewClientPriorityClamping(t *testing.T) {
 	}
 }
 
+// A Gotify server the user configured on the loopback interface must be reachable
+// even when INTEGRATION_ALLOW_PRIVATE_NETWORKS is disabled.
+func TestSendMessageToLoopbackEndpointWithoutPrivateNetworkOption(t *testing.T) {
+	configureIntegrationBlockPrivateNetworksOption(t)
+
+	var receivedToken string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		receivedToken = r.Header.Get("X-Gotify-Key")
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{"id":1}`))
+	}))
+	defer server.Close()
+
+	client := NewClient(server.URL, "loopback-token", 0)
+	if err := client.SendMessage("title", "msg", 0, nil); err != nil {
+		t.Fatalf("expected a literal loopback Gotify endpoint to be reachable, got %v", err)
+	}
+
+	if receivedToken != "loopback-token" {
+		t.Errorf("expected token %q, got %q", "loopback-token", receivedToken)
+	}
+}
+
+// The loopback exception is limited to literal IP addresses: a hostname that
+// resolves to the loopback interface stays blocked.
+func TestSendMessageToLoopbackHostnameIsBlocked(t *testing.T) {
+	configureIntegrationBlockPrivateNetworksOption(t)
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{"id":1}`))
+	}))
+	defer server.Close()
+
+	client := NewClient("http://localhost:"+strings.TrimPrefix(server.URL, "http://127.0.0.1:"), "token", 0)
+	if err := client.SendMessage("title", "msg", 0, nil); err == nil {
+		t.Fatal("expected a loopback hostname to be blocked, got no error")
+	}
+}
+
+func configureIntegrationBlockPrivateNetworksOption(t *testing.T) {
+	t.Helper()
+
+	t.Setenv("INTEGRATION_ALLOW_PRIVATE_NETWORKS", "0")
+
+	configParser := config.NewConfigParser()
+	parsedOptions, err := configParser.ParseEnvironmentVariables()
+	if err != nil {
+		t.Fatalf("Unable to configure test options: %v", err)
+	}
+
+	if parsedOptions.IntegrationAllowPrivateNetworks() {
+		t.Fatal("expected private networks to be blocked")
+	}
+
+	previousOptions := config.Opts
+	config.Opts = parsedOptions
+	t.Cleanup(func() {
+		config.Opts = previousOptions
+	})
+}
+
 func configureIntegrationAllowPrivateNetworksOption(t *testing.T) {
 	t.Helper()
 
