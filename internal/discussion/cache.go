@@ -59,6 +59,12 @@ func (c *cache) set(normalizedURL string, links []DiscussionLink, ttl time.Durat
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
+	// Never memoize a nil slice: a cache hit must answer the same list as the
+	// first response, and a nil slice would be serialized as null instead of [].
+	if links == nil {
+		links = []DiscussionLink{}
+	}
+
 	// Evict expired entries if we're at capacity.
 	if len(c.entries) >= maxSize {
 		now := time.Now()
