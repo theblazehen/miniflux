@@ -72,7 +72,10 @@ func ProcessFeedEntries(store *storage.Storage, feed *model.Feed, userID int64, 
 			slog.String("feed_url", feed.FeedURL),
 		)
 
-		if filter.IsBlockedEntry(blockRules, allowRules, feed, entry) {
+		// Keep rules that reference the reading time cannot be decided yet: the
+		// reading time is only computed after scraping, rewriting and sanitizing,
+		// so those rules are applied by the post-processing pass below.
+		if filter.IsBlockedEntryBeforeScraping(blockRules, allowRules, feed, entry) {
 			slog.Debug("Entry is blocked by filter rules",
 				slog.Int64("user_id", user.ID),
 				slog.String("entry_url", entry.URL),
