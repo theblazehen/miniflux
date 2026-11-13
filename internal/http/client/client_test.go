@@ -161,6 +161,30 @@ func TestRequestBuilderWithJSON(t *testing.T) {
 	}
 }
 
+func TestIsLiteralLoopbackEndpoint(t *testing.T) {
+	tests := []struct {
+		endpoint string
+		want     bool
+	}{
+		{"http://127.0.0.1:8080/message", true},
+		{"http://127.1.2.3/message", true},
+		{"http://[::1]:8080/message", true},
+		{"http://localhost:8080/message", false},
+		{"http://gotify.local/message", false},
+		{"http://10.0.0.1/message", false},
+		{"http://192.168.1.10/message", false},
+		{"http://169.254.169.254/message", false},
+		{"https://gotify.example.com/message", false},
+		{"://invalid", false},
+	}
+
+	for _, test := range tests {
+		if got := isLiteralLoopbackEndpoint(test.endpoint); got != test.want {
+			t.Errorf("isLiteralLoopbackEndpoint(%q) = %v, want %v", test.endpoint, got, test.want)
+		}
+	}
+}
+
 func TestRequestBuilderWithInvalidEndpoint(t *testing.T) {
 	_, err := NewRequestBuilder("://invalid").WithMethod(http.MethodPost).WithJSON(nil).Do()
 	if err == nil {
