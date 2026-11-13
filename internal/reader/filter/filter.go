@@ -127,6 +127,19 @@ func parseRule(userDefinedRule string) (bool, filterRule) {
 }
 
 func IsBlockedEntry(blockRules filterRules, allowRules filterRules, feed *model.Feed, entry *model.Entry) bool {
+	return isBlockedEntry(blockRules, allowRules, feed, entry, false)
+}
+
+// IsBlockedEntryBeforeScraping reports whether the entry is excluded by the
+// pre-scrape filter pass. Keep (allow) rules that reference the entry reading
+// time are not evaluated here: the reading time is only computed after the
+// entry has been scraped, rewritten and sanitized, so those rules are applied
+// by the post-processing pass instead. Block rules are evaluated as usual.
+func IsBlockedEntryBeforeScraping(blockRules filterRules, allowRules filterRules, feed *model.Feed, entry *model.Entry) bool {
+	return isBlockedEntry(blockRules, allowRules, feed, entry, true)
+}
+
+func isBlockedEntry(blockRules filterRules, allowRules filterRules, feed *model.Feed, entry *model.Entry, deferReadingTimeKeepRules bool) bool {
 	if matchesEntryFilterRules(blockRules, feed, entry) {
 		return true
 	}
@@ -137,6 +150,15 @@ func IsBlockedEntry(blockRules filterRules, allowRules filterRules, feed *model.
 
 	// If allow rules exist, only entries that match them should be retained
 	if len(allowRules) > 0 {
+		if deferReadingTimeKeepRules {
+			allowRules = allowRules.withoutReadingTimeRules()
+			if len(allowRules) == 0 {
+				// Every keep rule depends on the reading time: the entry cannot be
+				// excluded before the reading time is computed, so the decision is
+				// left to the post-processing pass.
+				return false
+			}
+		}
 		if !matchesEntryFilterRules(allowRules, feed, entry) {
 			return true // Block entry if it doesn't match any allow rules
 		}
@@ -152,6 +174,18 @@ func IsBlockedEntry(blockRules filterRules, allowRules filterRules, feed *model.
 	}
 
 	return false
+}
+
+// withoutReadingTimeRules returns the rules that can be evaluated before the
+// entry reading time is computed.
+func (rules filterRules) withoutReadingTimeRules() filterRules {
+	decidable := make(filterRules, 0, len(rules))
+	for _, rule := range rules {
+		if rule.Type != "EntryReadingTime" {
+			decidable = append(decidable, rule)
+		}
+	}
+	return decidable
 }
 
 // matchesEntryRegexRules checks if the entry matches the regex rules defined in the feed or user settings.

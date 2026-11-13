@@ -93,6 +93,13 @@ func (f *Finder) Find(ctx context.Context, entryURL string) DiscussionResponse {
 	// tracking params, etc.) so providers search for the canonical URL.
 	result, allFailed := f.fetchAll(ctx, normalized)
 
+	// Ensure a non-nil slice before caching so that a repeated identical request
+	// answers the same list as the first one: JSON encodes a nil slice as null,
+	// which would make cache hits differ from the first (uncached) response.
+	if result == nil {
+		result = []DiscussionLink{}
+	}
+
 	// Cache the result with an appropriate TTL:
 	// - resultTTL (30m) if we got results
 	// - errorTTL (5m) if all providers failed (allows faster retry)
@@ -106,11 +113,6 @@ func (f *Finder) Find(ctx context.Context, entryURL string) DiscussionResponse {
 		}
 	}
 	f.cache.set(normalized, result, ttl)
-
-	// Ensure non-nil slice so JSON encodes as [] not null.
-	if result == nil {
-		result = []DiscussionLink{}
-	}
 
 	entry.result = result
 	close(entry.done)
