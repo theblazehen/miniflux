@@ -12,6 +12,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/url"
 	"time"
 
 	"miniflux.app/v2/internal/config"
@@ -28,6 +29,11 @@ var ErrPrivateNetwork = errors.New("client: connection to private network is blo
 type Options struct {
 	Timeout              time.Duration
 	BlockPrivateNetworks bool
+	// AllowLoopback permits connections to loopback addresses (127.0.0.0/8 and
+	// ::1) while every other non-public address stays blocked. It exists for
+	// integrations the user explicitly configured to point at a service running
+	// on the same host (e.g. a self-hosted Gotify instance).
+	AllowLoopback bool
 }
 
 // NewClientWithOptions creates a new HTTP client with the specified options.
@@ -55,7 +61,7 @@ func NewClientWithOptions(opts Options) *http.Client {
 
 			var safeIP net.IP
 			for _, ip := range ips {
-				if !urllib.IsNonPublicIP(ip) {
+				if !urllib.IsNonPublicIP(ip) || (opts.AllowLoopback && ip.IsLoopback()) {
 					safeIP = ip
 					break
 				}
@@ -76,13 +82,27 @@ func NewClientWithOptions(opts Options) *http.Client {
 	}
 }
 
+// isLiteralLoopbackEndpoint reports whether the endpoint's host is a literal
+// loopback IP address. Hostnames are rejected on purpose: only an address the
+// caller wrote down explicitly can opt out of the private-network block.
+func isLiteralLoopbackEndpoint(endpoint string) bool {
+	parsedURL, err := url.Parse(endpoint)
+	if err != nil {
+		return false
+	}
+
+	ip := net.ParseIP(parsedURL.Hostname())
+	return ip != nil && ip.IsLoopback()
+}
+
 // requestBuilder builds and executes HTTP requests with the builder pattern.
 type requestBuilder struct {
-	err      error
-	endpoint string
-	method   string
-	body     io.Reader
-	headers  http.Header
+	err           error
+	endpoint      string
+	method        string
+	body          io.Reader
+	headers       http.Header
+	allowLoopback bool
 }
 
 // NewRequestBuilder creates a new request builder for the given endpoint.
@@ -103,6 +123,15 @@ func (r *requestBuilder) WithMethod(method string) *requestBuilder {
 // WithHeader sets a header value.
 func (r *requestBuilder) WithHeader(key, value string) *requestBuilder {
 	r.headers.Set(key, value)
+	return r
+}
+
+// WithLoopbackAllowed lets this request reach a loopback address, but only when
+// the endpoint host is a literal loopback IP address. Hostnames never qualify,
+// so a DNS name cannot be used to reach the loopback interface, and every other
+// non-public address stays blocked.
+func (r *requestBuilder) WithLoopbackAllowed() *requestBuilder {
+	r.allowLoopback = true
 	return r
 }
 
@@ -156,6 +185,10 @@ func (r *requestBuilder) Do() (*http.Response, error) {
 	clientOptions := Options{
 		Timeout:              defaultRequestTimeout,
 		BlockPrivateNetworks: !config.Opts.IntegrationAllowPrivateNetworks(),
+	}
+
+	if clientOptions.BlockPrivateNetworks && r.allowLoopback && isLiteralLoopbackEndpoint(r.endpoint) {
+		clientOptions.AllowLoopback = true
 	}
 
 	response, err := NewClientWithOptions(clientOptions).Do(req)
