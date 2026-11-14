@@ -1,0 +1,77 @@
+# RepoSteward fork feature inventory: one [[feature]] per feature of this fork.
+# Only id (unique) and decision = "keep" | "drop" are read strictly; everything else is free text.
+# A dropped feature is not carried through upstream merges. Edit freely: RepoSteward keeps entries as
+# written and appends the features it finds.
+schema = 1
+
+[[feature]]
+id = "hn-submission-links-percent-encode"
+title = "HN submission links percent-encode spaces as %20"
+behavior = "HN submission links percent-encode spaces as %20: The template func map gains `queryStringPercentEncoded`, which builds the same query string as `queryString` (leading \"?\", url.Values.Encode, empty/zero values dropped) and then replaces every \"+\" with \"%20\". Both Hacker News \"submitlink\" anchors — the list-view action bar in internal/template/templates/common/item_meta.html and the entry-detail action bar in internal/template/templates/views/entry.html — call it with `(dict \"u\" .entry.URL \"t\" .entry.Title)`. So for an entry with URL \"https://example.org/an article\" and title \"An article title\" the rendered href is `https://news.ycombinator.com/submitlink?t=An%20article%20title&amp;u=https%3A%2F%2Fexample.org%2Fan%20article` (keys sorted by url.Values.Encode, the \"&\" separator HTML-escaped by html/template) and contains no \"+\". `queryString` itself is unchanged and still used by pagination, search and prev/next links, which keep encoding spaces as \"+\"."
+why = {text = "inferred from the fork's commits: fix: percent-encode spaces in HN submissions", source = "inferred"}
+decision = "keep"
+evidence = {commits = ["d84c1a93d39aa80b081c1ac9c92b44d34de1ee35"], patch_ids = ["524dd93ebdd49f44f1624a6c4a290a0d2bc1cb61"], paths = ["internal/template/functions.go", "internal/template/functions_test.go", "internal/template/templates/common/item_meta.html", "internal/template/templates/views/entry.html"]}
+notes = "found by RepoSteward run repo-20261112T134703Z-0401 (its obligations L1)"
+
+[[feature]]
+id = "discussion-links-render-in-the-entry"
+title = "Discussion links render in the entry action bar (list and detail)"
+behavior = "Discussion links render in the entry action bar (list and detail): internal/template/templates/common/item_meta.html (list view) and internal/template/templates/views/entry.html (entry detail) each render, as the last item of the entry's action-icons <ul>, a hidden placeholder `<li class=\"item-meta-icons-discussions\" data-discussions-url=\"{{ routePath \"/entry/%d/discussions\" .entry.ID }}\" style=\"display:none\">`; the former `<div class=\"entry-discussions\" data-discussions-url=...>` block in the entry-detail header is removed. On page load app.js `initializeDiscussionLinks()` selects all `li.item-meta-icons-discussions[data-discussions-url]`, and for each placeholder issues its own `sendGETRequest(...)`/JSON GET (all entries fetched concurrently, no sequential await), deduplicates against the entry's own CommentsURL link found within the same `<ul>`, and then renders one `<a target=\"_blank\" rel=\"noopener\">` per discussion labelled `HN (12)` (hackernews), `Lobsters (4)` (lobsters) or `r/<community> (<n>)` (reddit), separated by \" · \", clearing the placeholder's display so the links appear in the action bar next to read/star/external link. Empty results and errors leave the placeholder"
+why = {text = "inferred from the fork's commits: feat: show discussion links in list view action bar", source = "inferred"}
+decision = "keep"
+evidence = {commits = ["592beb280ec55602b6354156e97920d1999a1bbf"], patch_ids = ["d239c4b1dea8115c9365b8cceca1a65c293520b0"], paths = ["internal/template/templates/common/item_meta.html", "internal/template/templates/views/entry.html", "internal/ui/entry_discussions.go", "internal/ui/static/js/app.js"]}
+notes = "found by RepoSteward run repo-20261112T134703Z-0401 (its obligations L2)"
+
+[[feature]]
+id = "send-to-hn-entry-action-in-list-and"
+title = "Send to HN entry action in list and detail action bars with locale labels"
+behavior = "Send to HN entry action in list and detail action bars with locale labels: Both entry action bars gain a Hacker News submission action pointing at `https://news.ycombinator.com/submitlink` with `u` = `.entry.URL` and `t` = `.entry.Title` (built by `queryStringPercentEncoded (dict \"u\" .entry.URL \"t\" .entry.Title)`): in the list view (internal/template/templates/common/item_meta.html) wrapped in `<li class=\"item-meta-icons-send-to-hn\">`, and in the entry detail view (internal/template/templates/views/entry.html) as an `<a class=\"page-link\">` item of the page action bar. The anchor uses the `share` icon and the new locale keys `entry.hn_submit.label` (\"Send to HN\") and `entry.hn_submit.title` (\"Send this entry to Hacker News\"), which the same commit adds to all 22 shipped translation files (en_US included). It gets `target=\"_blank\"` when the user's OpenExternalLinksInNewTab is set, otherwise `rel=\"noopener\"`."
+why = {text = "inferred from the fork's commits: feat: add Send to HN entry action", source = "inferred"}
+decision = "keep"
+evidence = {commits = ["9419d899dfca7941f46e909590ecda20870aef10"], patch_ids = ["6f5bce4f03caf1c7565ab266d4cf986d1555b8fd"], paths = ["internal/locale/translations/de_DE.json", "internal/locale/translations/en_US.json", "internal/template/templates/common/item_meta.html", "internal/template/templates/views/entry.html"]}
+notes = "found by RepoSteward run repo-20261112T134703Z-0401 (its obligations L3)"
+
+[[feature]]
+id = "entryreadingtime-filter-rule-compares"
+title = "EntryReadingTime filter rule compares entry reading minutes with >, <, >=, <=, =, != (+1)"
+behavior = "EntryReadingTime filter rule compares entry reading minutes with >, <, >=, <=, =, !=: A filter rule whose field name is `EntryReadingTime` is evaluated by filter.matchesRule (internal/reader/filter/filter.go) via isReadingTimeMatchingPattern(pattern string, readingTime int): the value's leading operator is detected by HasPrefix against the ordered list {\">=\", \"<=\", \"!=\", \">\", \"<\", \"=\"}, the remainder is TrimSpace'd and parsed with strconv.Atoi, and the comparison is done against entry.ReadingTime, which is a whole number of minutes. `>` and `<` are strict (a ReadingTime equal to the value does not match), `>=` and `<=` are inclusive, `=` means integer equality and `!=` means integer inequality. Rule syntax from the docs is `EntryReadingTime=>2`, `EntryReadingTime=<5`, `EntryReadingTime=>=10`, `EntryReadingTime=!=0` (field=operator+value, the parser splits on the first `=`).; EntryReadingTime rules with unsupported operator or non-integer value never match: isReadingTimeMatchingPattern returns false (no match, no error, no panic) when the value does not start with one of the six supported operators, or when the text after the operator is not a base-10 integer (strconv.Atoi error). S"
+why = {text = "inferred from the fork's commits: feat: add EntryReadingTime filter, on-demand discussion links, GHCR build", source = "inferred"}
+decision = "keep"
+evidence = {commits = ["7ed763d6572de05f6cf8133fe576a156f5eebcff"], patch_ids = ["382a742d3d4f3a36980b69ead14d5ddf5fdcb777"], paths = ["AGENTS.md", "internal/reader/filter/filter.go", "internal/reader/filter/filter_test.go"]}
+notes = "found by RepoSteward run repo-20261112T134703Z-0401 (its obligations L4, L5)"
+
+[[feature]]
+id = "get-v1-entries-entryid-discussions"
+title = "Fetch cached Hacker News and Reddit discussions for an entry through the API"
+behavior = "GET /v1/entries/{entryID}/discussions returns the discussions JSON envelope for the caller's entry: The API v1 handler registers \"GET /v1/entries/{entryID}/discussions\" (api.go, routes through the shared auth middleware) to getEntryDiscussionsHandler. The handler reads the entryID route param, answers JSON 400 \"invalid entry ID\" when it is 0, loads the entry through NewEntryQueryBuilder(request.UserID(r)).WithEntryID(id).WithoutStatus(model.EntryStatusRemoved) — so another user's entry, a removed entry or an unknown id yields JSON 404 — answers 200 with {\"discussions\":[]} without any provider lookup when entry.URL is empty, and otherwise returns Finder.Find(ctx, entry.URL) as DiscussionResponse{Discussions: []DiscussionLink}. The JSON envelope is {\"discussions\":[...]}, each element {source, title, url, comments, score, community (only for Reddit)}. Thanks to d5371c03 the slice is guaranteed non-nil so an empty result encodes as [] and never as null.; Discussion lookups are cached per normalized URL (TTL) and deduplicated by singleflight: Finder (internal/discussion/finder.go) keeps a shared in-memory TTL cache (internal/discussion/cache.go): get/set keyed by normalizeURL(entryURL),"
+why = {text = "inferred from the fork's commits: feat: add EntryReadingTime filter, on-demand discussion links, GHCR build; fix: use normalized URL (strip fragment) when querying discussion providers", source = "inferred"}
+decision = "keep"
+evidence = {commits = ["7ed763d6572de05f6cf8133fe576a156f5eebcff", "d5371c03ba3ed82e999e4cfc5071123908384b95"], patch_ids = ["382a742d3d4f3a36980b69ead14d5ddf5fdcb777", "653b8c48e5dc85b13435f620565726cb5b72e692"], paths = ["internal/api/api.go", "internal/api/discussion_handlers.go", "internal/discussion/cache.go", "internal/discussion/discussion.go", "internal/discussion/finder.go", "internal/discussion/hackernews.go", "internal/discussion/reddit.go"]}
+notes = "found by RepoSteward run repo-20261112T134703Z-0401 (its obligations L8, L11, L12, L13)"
+
+[[feature]]
+id = "on-demand-hn-reddit-discussion-links"
+title = "On-demand HN/Reddit discussion links wired into entry pages via /entry/{entryID}/discussions"
+behavior = "On-demand HN/Reddit discussion links wired into entry pages via /entry/{entryID}/discussions: Discussion links are fetched on demand by the browser, never rendered server-side. Item templates emit a hidden placeholder carrying the endpoint: <li class=\"item-meta-icons-discussions\" data-discussions-url=\"{{ routePath \"/entry/%d/discussions\" .entry.ID }}\" style=\"display:none\"> in internal/template/templates/common/item_meta.html (list views) and an equivalent <div class=\"entry-discussions\" data-discussions-url=\"...\"> in internal/template/templates/views/entry.html inside the {{ if .user }} block (detail view); the UI router registers \"GET /entry/{entryID}/discussions\" to handler.fetchDiscussions (internal/ui/ui.go). That handler mirrors the API handler: 400 for entryID 0, JSON 404 when the session user's entry query returns nil (unknown id, foreign entry, removed), 200 with {\"discussions\":[]} when entry.URL is empty, otherwise Finder.Find. Requests without a user session are redirected to the login page by the UI middleware (the route is not public). app.js initializeDiscussionLinks() selects li.item-meta-icons-discussions[data-discussions-url], fetches each URL with sendGETRequest, dr"
+why = {text = "inferred from the fork's commits: feat: add EntryReadingTime filter, on-demand discussion links, GHCR build", source = "inferred"}
+decision = "keep"
+evidence = {commits = ["7ed763d6572de05f6cf8133fe576a156f5eebcff"], patch_ids = ["382a742d3d4f3a36980b69ead14d5ddf5fdcb777"], paths = ["internal/template/templates/common/item_meta.html", "internal/template/templates/views/entry.html", "internal/ui/entry_discussions.go", "internal/ui/static/js/app.js", "internal/ui/ui.go"]}
+notes = "found by RepoSteward run repo-20261112T134703Z-0401 (its obligations L10)"
+
+[[feature]]
+id = "validator-accepts-entryreadingtime"
+title = "Validator accepts EntryReadingTime filter rules without regex-checking their values"
+behavior = "Validator accepts EntryReadingTime filter rules without regex-checking their values: validator.isValidFilterRules gained \"EntryReadingTime\" in its hardcoded fieldNames list (internal/validator/filter.go:15) and an early `continue` for fieldName == \"EntryReadingTime\" placed after the non-empty-value check (filter.go:37-40), so an EntryReadingTime rule such as `EntryReadingTime=>2`, `EntryReadingTime=<5`, `EntryReadingTime=>=10` or `EntryReadingTime=!=0` is accepted instead of failing the RE2 regex check that applies to all other fields. The structural checks still apply: an unknown field name yields error.settings_<block|keep>_rule_fieldname_invalid (whose argument lists the allowed field names, now including 'EntryReadingTime'), a missing `=` yields error.settings_<type>_rule_separator_required, and an empty value yields error.settings_<type>_rule_regex_required. This is reachable through validator.ValidateUserModificationRequest, which calls isValidFilterRules(*changes.BlockFilterEntryRules, \"block\") and (*changes.KeepFilterEntryRules, \"keep\") when those fields are non-empty."
+why = {text = "inferred from the fork's commits: fix: add EntryReadingTime to validator allowlist", source = "inferred"}
+decision = "keep"
+evidence = {commits = ["9491bcd84b9fb8caa610c85e62d94d09013673c1"], patch_ids = ["4b4a1054071bae033f2225899061f558616684ad"], paths = ["internal/validator/filter.go", "internal/validator/filter_test.go", "internal/validator/user.go"]}
+notes = "found by RepoSteward run repo-20261112T134703Z-0401 (its obligations L7)"
+
+[[feature]]
+id = "entryreadingtime-rules-are-evaluated"
+title = "EntryReadingTime rules are evaluated after reading time is computed, in one unconditional post-processing filter pass"
+behavior = "EntryReadingTime rules are evaluated after reading time is computed, in one unconditional post-processing filter pass: In internal/reader/processor/processor.go, ProcessFeedEntries now calls updateEntryReadingTime(store, feed, entry, entryIsNew, user) (processor.go:153) *before* the post-processing filter check `if filter.IsBlockedEntry(blockRules, allowRules, feed, entry)` (processor.go:156), so EntryReadingTime rules see the real entry.ReadingTime instead of 0. The earlier conditional pass (`if contentExtractedSuccessfully && filter.IsBlockedEntry(...)`, filter_stage \"after_scrape\") was removed, so the post-processing pass is unconditional and runs after scraping, content rewrite rules, sanitizing and reading-time calculation, with filter_stage \"after_processing\"; the pre-scrape pass (filter_stage \"before_scrape\") is unchanged. updateEntryReadingTime returns immediately when user.ShowReadingTime is false (ReadingTime stays 0), otherwise it may set ReadingTime from a platform watch time (YouTube/Nebula/Odysee/Bilibili, or store.GetReadTime for existing entries) and finally falls back to readingtime.EstimateReadingTime(entry.Content, ...) when ReadingTime is 0 and content is non-em"
+why = {text = "inferred from the fork's commits: fix: run EntryReadingTime filter after reading time is calculated; refactor: move reading time before filter instead of adding third pass", source = "inferred"}
+decision = "keep"
+evidence = {commits = ["21cd873f484aa720ce6b8e28a9ad222404b5e177", "982e5425843ce82fd316ae28790e5061e5e3ec4f"], patch_ids = ["9930d34df936604ac7313565ef8e8e6dc6ba8d2d", "a94393812d95ce1629cca940228e0bcf4eaf079f"], paths = ["internal/reader/filter/filter.go", "internal/reader/processor/processor.go", "internal/reader/processor/reading_time.go"]}
+notes = "found by RepoSteward run repo-20261112T134703Z-0401 (its obligations L9)"
