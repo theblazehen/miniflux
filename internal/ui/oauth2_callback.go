@@ -8,14 +8,13 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"slices"
 
 	"miniflux.app/v2/internal/config"
-	"miniflux.app/v2/internal/http/cookie"
 	"miniflux.app/v2/internal/http/request"
 	"miniflux.app/v2/internal/http/response"
 	"miniflux.app/v2/internal/locale"
 	"miniflux.app/v2/internal/model"
-	"miniflux.app/v2/internal/ui/session"
 )
 
 func (h *handler) oauth2Callback(w http.ResponseWriter, r *http.Request) {
@@ -33,15 +32,20 @@ func (h *handler) oauth2Callback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	sess := request.WebSession(r)
+
 	state := request.QueryStringParam(r, "state", "")
-	if subtle.ConstantTimeCompare([]byte(state), []byte(request.OAuth2State(r))) == 0 {
+	expectedState := sess.OAuth2State()
+	if expectedState == "" || subtle.ConstantTimeCompare([]byte(state), []byte(expectedState)) == 0 {
 		slog.Warn("Invalid OAuth2 state value received",
-			slog.String("expected", request.OAuth2State(r)),
-			slog.String("received", state),
+			slog.String("provider", provider),
 		)
 		response.HTMLRedirect(w, r, h.routePath("/"))
 		return
 	}
+
+	codeVerifier := sess.OAuth2CodeVerifier()
+	sess.ClearOAuth2Flow()
 
 	authProvider, err := getOAuth2Manager(r.Context()).FindProvider(provider)
 	if err != nil {
@@ -53,7 +57,7 @@ func (h *handler) oauth2Callback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	profile, err := authProvider.GetProfile(r.Context(), code, request.OAuth2CodeVerifier(r))
+	profile, err := authProvider.Profile(r.Context(), code, codeVerifier)
 	if err != nil {
 		slog.Warn("Unable to get OAuth2 profile from provider",
 			slog.String("provider", provider),
@@ -63,11 +67,7 @@ func (h *handler) oauth2Callback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	sess := session.New(h.store, request.SessionID(r))
-	sess.SetOAuth2State("")
-	sess.SetOAuth2CodeVerifier("")
-
-	printer := locale.NewPrinter(request.UserLanguage(r))
+	printer := locale.NewPrinter(sess.Language())
 
 	if request.IsAuthenticated(r) {
 		loggedUser, err := h.store.UserByID(request.UserID(r))
@@ -82,12 +82,12 @@ func (h *handler) oauth2Callback(w http.ResponseWriter, r *http.Request) {
 				slog.String("oauth2_provider", provider),
 				slog.String("oauth2_profile_id", profile.ID),
 			)
-			sess.NewFlashErrorMessage(printer.Print("error.duplicate_linked_account"))
-			response.HTMLRedirect(w, r, h.routePath("/settings"))
+			sess.SetErrorMessage(printer.Print("error.duplicate_linked_account"))
+			response.HTMLRedirect(w, r, h.routePath("/authentication"))
 			return
 		}
 
-		existingProfileID := authProvider.GetUserProfileID(loggedUser)
+		existingProfileID := authProvider.UserProfileID(loggedUser)
 		if existingProfileID != "" && existingProfileID != profile.ID {
 			slog.Error("Oauth2 user cannot be associated because this user is already linked to a different identity",
 				slog.Int64("user_id", loggedUser.ID),
@@ -95,8 +95,8 @@ func (h *handler) oauth2Callback(w http.ResponseWriter, r *http.Request) {
 				slog.String("existing_profile_id", existingProfileID),
 				slog.String("new_profile_id", profile.ID),
 			)
-			sess.NewFlashErrorMessage(printer.Print("error.duplicate_linked_account"))
-			response.HTMLRedirect(w, r, h.routePath("/settings"))
+			sess.SetErrorMessage(printer.Print("error.duplicate_linked_account"))
+			response.HTMLRedirect(w, r, h.routePath("/authentication"))
 			return
 		}
 
@@ -106,8 +106,8 @@ func (h *handler) oauth2Callback(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		sess.NewFlashMessage(printer.Print("alert.account_linked"))
-		response.HTMLRedirect(w, r, h.routePath("/settings"))
+		sess.SetSuccessMessage(printer.Print("alert.account_linked"))
+		response.HTMLRedirect(w, r, h.routePath("/authentication"))
 		return
 	}
 
@@ -116,6 +116,11 @@ func (h *handler) oauth2Callback(w http.ResponseWriter, r *http.Request) {
 		response.HTMLServerError(w, r, err)
 		return
 	}
+
+	groupClaim := config.Opts.Oauth2GroupClaim()
+	adminGroup := config.Opts.Oauth2AdminGroup()
+	adminRoleMappingEnabled := provider == "oidc" && groupClaim != "" && adminGroup != ""
+	isAdmin := adminRoleMappingEnabled && slices.Contains(profile.Groups, adminGroup)
 
 	if user == nil {
 		if !config.Opts.IsOAuth2UserCreationAllowed() {
@@ -128,7 +133,7 @@ func (h *handler) oauth2Callback(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		userCreationRequest := &model.UserCreationRequest{Username: profile.Username}
+		userCreationRequest := &model.UserCreationRequest{Username: profile.Username, IsAdmin: isAdmin}
 		authProvider.PopulateUserCreationWithProfileID(userCreationRequest, profile)
 
 		user, err = h.store.CreateUser(userCreationRequest)
@@ -138,31 +143,34 @@ func (h *handler) oauth2Callback(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	clientIP := request.ClientIP(r)
-	sessionToken, _, err := h.store.CreateUserSessionFromUsername(user.Username, r.UserAgent(), clientIP)
-	if err != nil {
-		response.HTMLServerError(w, r, err)
-		return
-	}
-
 	slog.Info("User authenticated successfully using OAuth2",
 		slog.Bool("authentication_successful", true),
-		slog.String("client_ip", clientIP),
+		slog.String("client_ip", request.ClientIP(r)),
 		slog.String("user_agent", r.UserAgent()),
 		slog.Int64("user_id", user.ID),
 		slog.String("username", user.Username),
 	)
 
-	h.store.SetLastLogin(user.ID)
-	sess.SetLanguage(user.Language)
-	sess.SetTheme(user.Theme)
+	if adminRoleMappingEnabled && user.IsAdmin != isAdmin {
+		user.IsAdmin = isAdmin
+		if err := h.store.UpdateUser(user); err != nil {
+			response.HTMLServerError(w, r, err)
+			return
+		}
 
-	http.SetCookie(w, cookie.New(
-		cookie.CookieUserSessionID,
-		sessionToken,
-		config.Opts.HTTPS(),
-		config.Opts.BasePath(),
-	))
+		slog.Info("Updated admin role from OIDC group membership",
+			slog.Int64("user_id", user.ID),
+			slog.String("username", user.Username),
+			slog.Bool("is_admin", isAdmin),
+			slog.String("admin_group", adminGroup),
+		)
+	}
+
+	h.store.SetLastLogin(user.ID)
+	if err := authenticateWebSession(w, r, h.store, user); err != nil {
+		response.HTMLServerError(w, r, err)
+		return
+	}
 
 	response.HTMLRedirect(w, r, h.basePath+"/"+user.DefaultHomePage)
 }

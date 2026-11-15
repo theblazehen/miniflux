@@ -13,8 +13,10 @@ import (
 	"miniflux.app/v2/internal/config"
 	"miniflux.app/v2/internal/http/request"
 	"miniflux.app/v2/internal/http/response"
+	"miniflux.app/v2/internal/locale"
 	"miniflux.app/v2/internal/model"
 	feedHandler "miniflux.app/v2/internal/reader/handler"
+	"miniflux.app/v2/internal/storage"
 	"miniflux.app/v2/internal/validator"
 )
 
@@ -31,7 +33,15 @@ func (h *handler) createFeedHandler(w http.ResponseWriter, r *http.Request) {
 	if feedCreationRequest.CategoryID == 0 {
 		category, err := h.store.FirstCategory(userID)
 		if err != nil {
+			if errors.Is(err, storage.ErrNoCategory) {
+				response.JSONBadRequest(w, r, locale.NewLocalizedError("error.feed_category_not_found").Error())
+				return
+			}
 			response.JSONServerError(w, r, err)
+			return
+		}
+		if category == nil {
+			response.JSONBadRequest(w, r, locale.NewLocalizedError("error.feed_category_not_found").Error())
 			return
 		}
 		feedCreationRequest.CategoryID = category.ID
@@ -59,12 +69,20 @@ func (h *handler) refreshFeedHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	userID := request.UserID(r)
-	if !h.store.FeedExists(userID, feedID) {
+	exists, err := h.store.FeedExists(userID, feedID)
+	if err != nil {
+		response.JSONServerError(w, r, err)
+		return
+	}
+	if !exists {
 		response.JSONNotFound(w, r)
 		return
 	}
 
-	localizedError := feedHandler.RefreshFeed(h.store, userID, feedID, false)
+	// force=true mirrors the web UI's forced refresh: it bypasses the HTTP cache
+	// and reprocesses (and re-scrapes) entries that are already stored.
+	forceRefresh := request.QueryBoolParam(r, "force", false)
+	localizedError := feedHandler.RefreshFeed(h.store, userID, feedID, forceRefresh)
 	if localizedError != nil {
 		response.JSONServerError(w, r, localizedError.Error())
 		return
@@ -76,14 +94,13 @@ func (h *handler) refreshFeedHandler(w http.ResponseWriter, r *http.Request) {
 func (h *handler) refreshAllFeedsHandler(w http.ResponseWriter, r *http.Request) {
 	userID := request.UserID(r)
 
-	batchBuilder := h.store.NewBatchBuilder()
-	batchBuilder.WithErrorLimit(config.Opts.PollingParsingErrorLimit())
-	batchBuilder.WithoutDisabledFeeds()
-	batchBuilder.WithNextCheckExpired()
-	batchBuilder.WithUserID(userID)
-	batchBuilder.WithLimitPerHost(config.Opts.PollingLimitPerHost())
-
-	jobs, err := batchBuilder.FetchJobs()
+	jobs, err := h.store.NewBatchBuilder().
+		WithErrorLimit(config.Opts.PollingParsingErrorLimit()).
+		WithoutDisabledFeeds().
+		WithNextCheckExpired().
+		WithUserID(userID).
+		WithLimitPerHost(config.Opts.PollingLimitPerHost()).
+		FetchJobs()
 	if err != nil {
 		response.JSONServerError(w, r, err)
 		return
@@ -116,7 +133,7 @@ func (h *handler) updateFeedHandler(w http.ResponseWriter, r *http.Request) {
 	userID := request.UserID(r)
 	originalFeed, err := h.store.FeedByID(userID, feedID)
 	if err != nil {
-		response.JSONNotFound(w, r)
+		response.JSONServerError(w, r, err)
 		return
 	}
 
@@ -155,7 +172,12 @@ func (h *handler) markFeedAsReadHandler(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	if !h.store.FeedExists(userID, feedID) {
+	exists, err := h.store.FeedExists(userID, feedID)
+	if err != nil {
+		response.JSONServerError(w, r, err)
+		return
+	}
+	if !exists {
 		response.JSONNotFound(w, r)
 		return
 	}
@@ -246,7 +268,12 @@ func (h *handler) removeFeedHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	userID := request.UserID(r)
-	if !h.store.FeedExists(userID, feedID) {
+	exists, err := h.store.FeedExists(userID, feedID)
+	if err != nil {
+		response.JSONServerError(w, r, err)
+		return
+	}
+	if !exists {
 		response.JSONNotFound(w, r)
 		return
 	}

@@ -5,11 +5,15 @@ package client
 
 import (
 	"errors"
+	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 	"time"
+
+	"miniflux.app/v2/internal/config"
+	"miniflux.app/v2/internal/version"
 )
 
 func TestNewClientWithoutBlockingPrivateNetworks(t *testing.T) {
@@ -110,4 +114,98 @@ func TestBlockPrivateNetworksAllowsLoopbackWhenDisabled(t *testing.T) {
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("Expected status 200, got %d", resp.StatusCode)
 	}
+}
+
+func TestRequestBuilderWithJSON(t *testing.T) {
+	configureIntegrationAllowPrivateNetworksOption(t)
+
+	var gotMethod, gotContentType, gotUserAgent, gotAuth, gotBody string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotMethod = r.Method
+		gotContentType = r.Header.Get("Content-Type")
+		gotUserAgent = r.Header.Get("User-Agent")
+		gotAuth = r.Header.Get("Authorization")
+		body, _ := io.ReadAll(r.Body)
+		gotBody = string(body)
+		w.WriteHeader(http.StatusCreated)
+	}))
+	defer server.Close()
+
+	response, err := NewRequestBuilder(server.URL).
+		WithMethod(http.MethodPost).
+		WithHeader("Authorization", "Bearer secret").
+		WithJSON(map[string]string{"hello": "world"}).
+		Do()
+	if err != nil {
+		t.Fatalf("request execution failed: %v", err)
+	}
+	defer response.Body.Close()
+
+	if response.StatusCode != http.StatusCreated {
+		t.Errorf("expected status %d, got %d", http.StatusCreated, response.StatusCode)
+	}
+	if gotMethod != http.MethodPost {
+		t.Errorf("expected method POST, got %s", gotMethod)
+	}
+	if gotContentType != "application/json" {
+		t.Errorf("expected Content-Type application/json, got %q", gotContentType)
+	}
+	if want := "Miniflux/" + version.Version; gotUserAgent != want {
+		t.Errorf("expected User-Agent %q, got %q", want, gotUserAgent)
+	}
+	if gotAuth != "Bearer secret" {
+		t.Errorf("expected Authorization %q, got %q", "Bearer secret", gotAuth)
+	}
+	if gotBody != `{"hello":"world"}` {
+		t.Errorf("expected body %q, got %q", `{"hello":"world"}`, gotBody)
+	}
+}
+
+func TestIsLiteralLoopbackEndpoint(t *testing.T) {
+	tests := []struct {
+		endpoint string
+		want     bool
+	}{
+		{"http://127.0.0.1:8080/message", true},
+		{"http://127.1.2.3/message", true},
+		{"http://[::1]:8080/message", true},
+		{"http://localhost:8080/message", false},
+		{"http://gotify.local/message", false},
+		{"http://10.0.0.1/message", false},
+		{"http://192.168.1.10/message", false},
+		{"http://169.254.169.254/message", false},
+		{"https://gotify.example.com/message", false},
+		{"://invalid", false},
+	}
+
+	for _, test := range tests {
+		if got := isLiteralLoopbackEndpoint(test.endpoint); got != test.want {
+			t.Errorf("isLiteralLoopbackEndpoint(%q) = %v, want %v", test.endpoint, got, test.want)
+		}
+	}
+}
+
+func TestRequestBuilderWithInvalidEndpoint(t *testing.T) {
+	_, err := NewRequestBuilder("://invalid").WithMethod(http.MethodPost).WithJSON(nil).Do()
+	if err == nil {
+		t.Fatal("expected an error for an invalid endpoint, got nil")
+	}
+}
+
+func configureIntegrationAllowPrivateNetworksOption(t *testing.T) {
+	t.Helper()
+
+	t.Setenv("INTEGRATION_ALLOW_PRIVATE_NETWORKS", "1")
+
+	configParser := config.NewConfigParser()
+	parsedOptions, err := configParser.ParseEnvironmentVariables()
+	if err != nil {
+		t.Fatalf("Unable to configure test options: %v", err)
+	}
+
+	previousOptions := config.Opts
+	config.Opts = parsedOptions
+	t.Cleanup(func() {
+		config.Opts = previousOptions
+	})
 }

@@ -10,7 +10,6 @@ import (
 	"miniflux.app/v2/internal/discussion"
 	"miniflux.app/v2/internal/http/request"
 	"miniflux.app/v2/internal/http/response"
-	"miniflux.app/v2/internal/model"
 )
 
 func (h *handler) fetchDiscussions(w http.ResponseWriter, r *http.Request) {
@@ -22,11 +21,13 @@ func (h *handler) fetchDiscussions(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	entryBuilder := h.store.NewEntryQueryBuilder(loggedUserID)
-	entryBuilder.WithEntryID(entryID)
-	entryBuilder.WithoutStatus(model.EntryStatusRemoved)
-
-	entry, err := entryBuilder.GetEntry()
+	// Upstream dropped model.EntryStatusRemoved, so the raw status value the
+	// fork used to exclude is kept here: removed entries stay invisible, and
+	// the query is scoped to the logged-in user through loggedUserID.
+	entry, err := h.store.NewEntryQueryBuilder(loggedUserID).
+		WithEntryIDs(entryID).
+		WithoutStatus("removed").
+		GetEntry()
 	if err != nil {
 		response.JSONServerError(w, r, err)
 		return

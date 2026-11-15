@@ -22,12 +22,25 @@ func TestIsRelativePath(t *testing.T) {
 		"path?query=value":    true,
 		"path#fragment":       true,
 		"path?query#fragment": true,
+		"/bookmarklet?uri=https://example.org/rss": true,
 
 		// Not relative paths
 		"https://example.org/file.ext": false,
 		"http://example.org/file.ext":  false,
 		"//example.org/file.ext":       false,
 		"//example.org":                false,
+		"///example.org":               false,
+		"////example.org/path":         false,
+		" //example.org":               false,
+		"  //example.org/path":         false,
+		"\t//example.org":              false,
+		"\n//example.org":              false,
+		" /path":                       false,
+		"/path ":                       false,
+		`/\example.org`:                false,
+		` /\example.org`:               false,
+		`\example.org`:                 false,
+		`path\to\file.ext`:             false,
 		"ftp://example.org/file.ext":   false,
 		"mailto:user@example.org":      false,
 		"magnet:?xt=urn:btih:example":  false,
@@ -59,6 +72,34 @@ func TestIsAbsoluteURL(t *testing.T) {
 
 	for input, expected := range scenarios {
 		actual := IsAbsoluteURL(input)
+		if actual != expected {
+			t.Errorf(`Unexpected result, got %v instead of %v for %q`, actual, expected, input)
+		}
+	}
+}
+
+func TestIsValidProxyURL(t *testing.T) {
+	scenarios := map[string]bool{
+		"http://127.0.0.1:3128":      true,
+		"http://[::1]:1055":          true,
+		"https://proxy.example.org":  true,
+		"socks5://127.0.0.1:1080":    true,
+		"socks5h://127.0.0.1:1080":   true,
+		"socks5://[::1]:1055":        true,
+		"socks5h://[::1]:1055":       true,
+		"socks5://[::1%25eno1]:1055": true,
+		"ftp://host":                 false,
+		"/relative/path":             false,
+		"invalid url":                false,
+		"http://[::1":                false,
+		"http:///var/run/socket":     false,
+		"sock:///socket.file":        false,
+		"socks5://[::1%eno1]:1055":   false,
+		"":                           false,
+	}
+
+	for input, expected := range scenarios {
+		actual := IsValidProxyURL(input)
 		if actual != expected {
 			t.Errorf(`Unexpected result, got %v instead of %v for %q`, actual, expected, input)
 		}
@@ -235,12 +276,37 @@ func TestIsNonPublicIP(t *testing.T) {
 		{"shared address space IPv4", "100.64.0.1", true},
 		{"loopback IPv4", "127.0.0.1", true},
 		{"link-local IPv4", "169.254.42.1", true},
+		{"Azure WireServer IPv4", "168.63.129.16", true},
+		{"Oracle Cloud metadata IPv4", "192.0.0.192", true},
+		{"benchmarking IPv4", "198.18.0.1", true},
 		{"multicast IPv4", "224.0.0.1", true},
+		{"unspecified IPv4", "0.0.0.0", true},
+		{"this network IPv4", "0.0.0.1", true},
+		{"this network IPv4 upper bound", "0.255.255.255", true},
+		{"IPv4-mapped this network", "::ffff:0.0.0.1", true},
+		{"NAT64 this network IPv4", "64:ff9b::1", true},
+		{"6to4 this network IPv4", "2002:0:1::", true},
+		{"reserved IPv4", "240.0.0.1", true},
+		{"limited broadcast IPv4", "255.255.255.255", true},
 		{"unspecified IPv6", "::", true},
 		{"loopback IPv6", "::1", true},
 		{"multicast IPv6", "ff02::1", true},
+		{"site-local IPv6", "fec0::1", true},
+		{"NAT64 loopback IPv4", "64:ff9b::7f00:1", true},
+		{"NAT64 link-local IPv4", "64:ff9b::a9fe:a9fe", true},
+		{"6to4 loopback IPv4", "2002:7f00:1::", true},
+		{"6to4 private IPv4", "2002:a00:1::", true},
+		{"6to4 link-local IPv4", "2002:a9fe:a9fe::", true},
+		{"IPv4-compatible loopback", "::127.0.0.1", true},
+		{"IPv4-compatible private", "::10.0.0.1", true},
+		{"IPv4-compatible link-local", "::169.254.169.254", true},
+		{"IPv4-compatible public", "::93.184.216.34", true},
 		{"public IPv4", "93.184.216.34", false},
+		{"public IPv4 after this network", "1.0.0.1", false},
+		{"public IPv4 before reserved", "223.255.255.254", false},
 		{"public IPv6", "2001:4860:4860::8888", false},
+		{"NAT64 public IPv4", "64:ff9b::5db8:d822", false},
+		{"6to4 public IPv4", "2002:5db8:d822::1", false},
 	}
 
 	for _, tc := range testCases {

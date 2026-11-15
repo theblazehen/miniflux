@@ -434,6 +434,24 @@ func TestInvidiousIFrame(t *testing.T) {
 	}
 }
 
+func TestInvidiousIFrameWithPort(t *testing.T) {
+	os.Setenv("INVIDIOUS_INSTANCE", "invidious.example.com:3000")
+
+	defer os.Clearenv()
+	var err error
+	if config.Opts, err = config.NewConfigParser().ParseEnvironmentVariables(); err != nil {
+		t.Fatalf(`Parsing failure: %v`, err)
+	}
+
+	input := `<iframe src="https://invidious.example.com:3000/embed/1234"></iframe>`
+	expected := `<iframe src="https://invidious.example.com:3000/embed/1234" sandbox="allow-scripts allow-same-origin allow-popups allow-popups-to-escape-sandbox" loading="lazy"></iframe>`
+	output := sanitizeHTMLWithDefaultOptions("http://example.com/", input)
+
+	if expected != output {
+		t.Errorf(`Wrong output: %q != %q`, expected, output)
+	}
+}
+
 func TestIFrameAllowList(t *testing.T) {
 	config.Opts = config.NewConfigOptions()
 
@@ -460,6 +478,28 @@ func TestIFrameAllowList(t *testing.T) {
 
 			if !strings.Contains(output, "<iframe") {
 				t.Errorf(`iframe from %q should be allowed, got: %q`, domain, output)
+			}
+		})
+	}
+}
+
+func TestIFrameRejectsNonWebSchemes(t *testing.T) {
+	config.Opts = config.NewConfigOptions()
+
+	testCases := []string{
+		`javascript://youtube.com/%0Aalert(document.domain)`,
+		`JAVASCRIPT://youtube.com/%0Aalert(document.domain)`,
+		`data://youtube.com/text/html,<script>alert(1)</script>`,
+		`vbscript://youtube.com/alert(1)`,
+		`ftp://youtube.com/embed/test`,
+	}
+
+	for _, iframeURL := range testCases {
+		t.Run(iframeURL, func(t *testing.T) {
+			input := fmt.Sprintf(`<iframe src="%s"></iframe>`, iframeURL)
+			output := sanitizeHTMLWithDefaultOptions("https://example.com/", input)
+			if output != "" {
+				t.Errorf("Unsafe iframe was preserved: %q", output)
 			}
 		})
 	}
@@ -1011,9 +1051,10 @@ func TestAttrLowerCase(t *testing.T) {
 }
 
 func TestDeeplyNestedpage(t *testing.T) {
+	maxDepth := 512 // html.Parse has a maximum depth of 512
 	input := "test"
-	// -3 instead of -1 because <html><body> is automatically added.
-	for range maxDepth - 3 {
+	// -2 instead of -1 because <html><body> is automatically added.
+	for range maxDepth - 2 {
 		input = "<div>" + input + "</div>"
 	}
 	output := sanitizeHTMLWithDefaultOptions("http://example.org/", input)
@@ -1024,7 +1065,7 @@ func TestDeeplyNestedpage(t *testing.T) {
 	}
 
 	input = "test"
-	for range maxDepth - 2 {
+	for range maxDepth - 1 {
 		input = "<div>" + input + "</div>"
 	}
 	output = sanitizeHTMLWithDefaultOptions("http://example.org/", input)

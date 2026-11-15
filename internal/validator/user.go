@@ -7,6 +7,7 @@ import (
 	"strings"
 	"unicode"
 
+	"miniflux.app/v2/internal/config"
 	"miniflux.app/v2/internal/locale"
 	"miniflux.app/v2/internal/model"
 	"miniflux.app/v2/internal/storage"
@@ -39,12 +40,22 @@ func ValidateUserModification(store *storage.Storage, userID int64, changes *mod
 	if changes.Username != nil {
 		if *changes.Username == "" {
 			return locale.NewLocalizedError("error.user_mandatory_fields")
-		} else if store.AnotherUserExists(userID, *changes.Username) {
+		}
+
+		if err := validateUsername(*changes.Username); err != nil {
+			return err
+		}
+
+		if store.AnotherUserExists(userID, *changes.Username) {
 			return locale.NewLocalizedError("error.user_already_exists")
 		}
 	}
 
 	if changes.Password != nil {
+		if config.Opts.DisableLocalAuth() {
+			return locale.NewLocalizedError("error.local_auth_disabled")
+		}
+
 		if err := validatePassword(*changes.Password); err != nil {
 			return err
 		}
@@ -75,8 +86,8 @@ func ValidateUserModification(store *storage.Storage, userID int64, changes *mod
 	}
 
 	if changes.EntryOrder != nil {
-		if err := ValidateEntryOrder(*changes.EntryOrder); err != nil {
-			return locale.NewLocalizedError("error.invalid_entry_order")
+		if err := validateEntrySortingOrder(*changes.EntryOrder); err != nil {
+			return err
 		}
 	}
 
@@ -130,7 +141,7 @@ func ValidateUserModification(store *storage.Storage, userID int64, changes *mod
 
 	if changes.BlockFilterEntryRules != nil {
 		if *changes.BlockFilterEntryRules != "" {
-			if err := isValidFilterRules(*changes.BlockFilterEntryRules, "block"); err != nil {
+			if err := IsValidFilterRules(*changes.BlockFilterEntryRules, "block"); err != nil {
 				return err
 			}
 		}
@@ -138,7 +149,7 @@ func ValidateUserModification(store *storage.Storage, userID int64, changes *mod
 
 	if changes.KeepFilterEntryRules != nil {
 		if *changes.KeepFilterEntryRules != "" {
-			if err := isValidFilterRules(*changes.KeepFilterEntryRules, "keep"); err != nil {
+			if err := IsValidFilterRules(*changes.KeepFilterEntryRules, "keep"); err != nil {
 				return err
 			}
 		}
@@ -212,8 +223,17 @@ func validateTimezone(timezoneValue string) *locale.LocalizedError {
 }
 
 func validateEntriesPerPage(entriesPerPage int) *locale.LocalizedError {
-	if entriesPerPage < 1 {
+	if entriesPerPage < 1 || entriesPerPage > model.MaxEntryLimit {
 		return locale.NewLocalizedError("error.entries_per_page_invalid")
+	}
+	return nil
+}
+
+// validateEntrySortingOrder must accept only the values of the
+// entry_sorting_order enum type in the database.
+func validateEntrySortingOrder(order string) *locale.LocalizedError {
+	if order != "published_at" && order != "created_at" {
+		return locale.NewLocalizedError("error.invalid_entry_order")
 	}
 	return nil
 }

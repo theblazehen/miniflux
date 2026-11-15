@@ -29,6 +29,8 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"miniflux.app/v2/internal/model"
@@ -40,6 +42,34 @@ type filterRule struct {
 }
 
 type filterRules []filterRule
+
+const maxCachedRegexes = 1024
+
+var (
+	compiledRegexesCache     sync.Map
+	compiledRegexesCacheSize atomic.Int64
+)
+
+func cachedRegex(pattern string) *regexp.Regexp {
+	if v, ok := compiledRegexesCache.Load(pattern); ok {
+		return v.(*regexp.Regexp)
+	}
+
+	re, err := regexp.Compile(pattern)
+	if err != nil {
+		slog.Warn("Failed on regexp compilation",
+			slog.String("regex_pattern", pattern),
+			slog.Any("error", err),
+		)
+	}
+
+	compiledRegexesCache.Store(pattern, re)
+	if compiledRegexesCacheSize.Add(1) >= maxCachedRegexes {
+		compiledRegexesCache.Clear()
+		compiledRegexesCacheSize.Store(0)
+	}
+	return re
+}
 
 func ParseRules(userRules, feedRules string) filterRules {
 	rules := make(filterRules, 0)
@@ -56,8 +86,36 @@ func ParseRules(userRules, feedRules string) filterRules {
 	return rules
 }
 
+// legacyReadingTimeOperators are the comparison operators understood by
+// EntryReadingTime rules. They are the operators that can be written without the
+// `=` field separator, for instance "EntryReadingTime>0".
+var legacyReadingTimeOperators = []string{">=", "<=", "!=", ">", "<"}
+
+// cutLegacyReadingTimeRule recognizes the no-separator form of an EntryReadingTime
+// comparison rule, such as "EntryReadingTime>0" or "EntryReadingTime<=5", and
+// returns its comparison pattern (e.g. ">0"). The documented form
+// ("EntryReadingTime=>0") is not matched here: its pattern starts with `=`.
+// Values of that legacy shape can already sit in the database, so the evaluator
+// still understands them; the settings validator keeps requiring the documented
+// `FieldName=operator+value` form for newly saved rules.
+func cutLegacyReadingTimeRule(userDefinedRule string) (string, bool) {
+	pattern, found := strings.CutPrefix(userDefinedRule, "EntryReadingTime")
+	if !found {
+		return "", false
+	}
+	for _, operator := range legacyReadingTimeOperators {
+		if strings.HasPrefix(pattern, operator) {
+			return pattern, true
+		}
+	}
+	return "", false
+}
+
 func parseRule(userDefinedRule string) (bool, filterRule) {
 	userDefinedRule = strings.TrimSpace(strings.ReplaceAll(userDefinedRule, "\r\n", ""))
+	if pattern, found := cutLegacyReadingTimeRule(userDefinedRule); found {
+		return true, filterRule{Type: "EntryReadingTime", Value: pattern}
+	}
 	parts := strings.SplitN(userDefinedRule, "=", 2)
 	if len(parts) != 2 {
 		return false, filterRule{}
@@ -69,6 +127,19 @@ func parseRule(userDefinedRule string) (bool, filterRule) {
 }
 
 func IsBlockedEntry(blockRules filterRules, allowRules filterRules, feed *model.Feed, entry *model.Entry) bool {
+	return isBlockedEntry(blockRules, allowRules, feed, entry, false)
+}
+
+// IsBlockedEntryBeforeScraping reports whether the entry is excluded by the
+// pre-scrape filter pass. Keep (allow) rules that reference the entry reading
+// time are not evaluated here: the reading time is only computed after the
+// entry has been scraped, rewritten and sanitized, so those rules are applied
+// by the post-processing pass instead. Block rules are evaluated as usual.
+func IsBlockedEntryBeforeScraping(blockRules filterRules, allowRules filterRules, feed *model.Feed, entry *model.Entry) bool {
+	return isBlockedEntry(blockRules, allowRules, feed, entry, true)
+}
+
+func isBlockedEntry(blockRules filterRules, allowRules filterRules, feed *model.Feed, entry *model.Entry, deferReadingTimeKeepRules bool) bool {
 	if matchesEntryFilterRules(blockRules, feed, entry) {
 		return true
 	}
@@ -79,6 +150,15 @@ func IsBlockedEntry(blockRules filterRules, allowRules filterRules, feed *model.
 
 	// If allow rules exist, only entries that match them should be retained
 	if len(allowRules) > 0 {
+		if deferReadingTimeKeepRules {
+			allowRules = allowRules.withoutReadingTimeRules()
+			if len(allowRules) == 0 {
+				// Every keep rule depends on the reading time: the entry cannot be
+				// excluded before the reading time is computed, so the decision is
+				// left to the post-processing pass.
+				return false
+			}
+		}
 		if !matchesEntryFilterRules(allowRules, feed, entry) {
 			return true // Block entry if it doesn't match any allow rules
 		}
@@ -96,6 +176,18 @@ func IsBlockedEntry(blockRules filterRules, allowRules filterRules, feed *model.
 	return false
 }
 
+// withoutReadingTimeRules returns the rules that can be evaluated before the
+// entry reading time is computed.
+func (rules filterRules) withoutReadingTimeRules() filterRules {
+	decidable := make(filterRules, 0, len(rules))
+	for _, rule := range rules {
+		if rule.Type != "EntryReadingTime" {
+			decidable = append(decidable, rule)
+		}
+	}
+	return decidable
+}
+
 // matchesEntryRegexRules checks if the entry matches the regex rules defined in the feed or user settings.
 // It returns true if the entry matches the regex pattern, and a boolean indicating if the regex is valid.
 func matchesEntryRegexRules(regexPattern string, feed *model.Feed, entry *model.Entry) (bool, bool) {
@@ -103,12 +195,8 @@ func matchesEntryRegexRules(regexPattern string, feed *model.Feed, entry *model.
 		return false, true // No pattern means rule is valid but doesn't match
 	}
 
-	compiledRegex, err := regexp.Compile(regexPattern)
-	if err != nil {
-		slog.Warn("Failed on regexp compilation",
-			slog.String("regex_pattern", regexPattern),
-			slog.Any("error", err),
-		)
+	compiledRegex := cachedRegex(regexPattern)
+	if compiledRegex == nil {
 		return false, false // Invalid regex pattern
 	}
 
@@ -151,28 +239,32 @@ func matchesEntryFilterRules(rules filterRules, feed *model.Feed, entry *model.E
 }
 
 func matchesRule(rule filterRule, entry *model.Entry) bool {
-	switch rule.Type {
-	case "EntryDate":
+	if rule.Type == "EntryDate" {
 		return isDateMatchingPattern(rule.Value, entry.Date)
-	case "EntryTitle":
-		match, _ := regexp.MatchString(rule.Value, entry.Title)
-		return match
-	case "EntryURL":
-		match, _ := regexp.MatchString(rule.Value, entry.URL)
-		return match
-	case "EntryCommentsURL":
-		match, _ := regexp.MatchString(rule.Value, entry.CommentsURL)
-		return match
-	case "EntryContent":
-		match, _ := regexp.MatchString(rule.Value, entry.Content)
-		return match
-	case "EntryAuthor":
-		match, _ := regexp.MatchString(rule.Value, entry.Author)
-		return match
-	case "EntryTag":
-		return containsRegexPattern(rule.Value, entry.Tags)
-	case "EntryReadingTime":
+	}
+
+	if rule.Type == "EntryReadingTime" {
 		return isReadingTimeMatchingPattern(rule.Value, entry.ReadingTime)
+	}
+
+	re := cachedRegex(rule.Value)
+	if re == nil {
+		return false
+	}
+
+	switch rule.Type {
+	case "EntryTitle":
+		return re.MatchString(entry.Title)
+	case "EntryURL":
+		return re.MatchString(entry.URL)
+	case "EntryCommentsURL":
+		return re.MatchString(entry.CommentsURL)
+	case "EntryContent":
+		return re.MatchString(entry.Content)
+	case "EntryAuthor":
+		return re.MatchString(entry.Author)
+	case "EntryTag":
+		return slices.ContainsFunc(entry.Tags, re.MatchString)
 	}
 
 	return false
@@ -229,12 +321,11 @@ func isDateMatchingPattern(pattern string, entryDate time.Time) bool {
 }
 
 func containsRegexPattern(pattern string, items []string) bool {
-	for _, item := range items {
-		if matched, _ := regexp.MatchString(pattern, item); matched {
-			return true
-		}
+	re := cachedRegex(pattern)
+	if re == nil {
+		return false
 	}
-	return false
+	return slices.ContainsFunc(items, re.MatchString)
 }
 
 func parseDuration(duration string) (time.Duration, error) {

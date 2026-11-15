@@ -28,7 +28,7 @@ type Engine struct {
 func NewEngine(basePath string) *Engine {
 	return &Engine{
 		templates: make(map[string]*template.Template),
-		funcMap:   &funcMap{basePath},
+		funcMap:   &funcMap{basePath: basePath},
 	}
 }
 
@@ -38,6 +38,7 @@ func (e *Engine) ParseTemplates() {
 		"about.html":               {"layout.html", "settings_menu.html"},
 		"add_subscription.html":    {"feed_menu.html", "layout.html", "settings_menu.html"},
 		"api_keys.html":            {"layout.html", "settings_menu.html"},
+		"authentication.html":      {"layout.html", "settings_menu.html"},
 		"starred_entries.html":     {"item_meta.html", "layout.html", "pagination.html"},
 		"categories.html":          {"layout.html"},
 		"category_entries.html":    {"item_meta.html", "layout.html", "pagination.html"},
@@ -93,6 +94,13 @@ func (e *Engine) Render(name string, data map[string]any) []byte {
 	if !ok {
 		panic("The template " + name + " does not exists.")
 	}
+
+	// Clone the template so the per-request, language-specific functions below
+	// are bound on a private copy. The shared template stored in e.templates is
+	// only ever cloned (never executed directly), so concurrent requests no
+	// longer race on its function map, which previously could cause a response
+	// to be rendered with another concurrent request's language.
+	tpl = template.Must(tpl.Clone())
 
 	printer := locale.NewPrinter(data["language"].(string))
 

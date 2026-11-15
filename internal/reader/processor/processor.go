@@ -50,16 +50,16 @@ func ProcessFeedEntries(store *storage.Storage, feed *model.Feed, userID int64, 
 		slog.Int64("feed_id", feed.ID),
 	)
 
-	requestBuilder := fetcher.NewRequestBuilder()
-	requestBuilder.WithUserAgent(feed.UserAgent, config.Opts.HTTPClientUserAgent())
-	requestBuilder.WithCookie(feed.Cookie)
-	requestBuilder.WithTimeout(config.Opts.HTTPClientTimeout())
-	requestBuilder.WithProxyRotator(proxyrotator.ProxyRotatorInstance)
-	requestBuilder.WithCustomFeedProxyURL(feed.ProxyURL)
-	requestBuilder.WithCustomApplicationProxyURL(config.Opts.HTTPClientProxyURL())
-	requestBuilder.UseCustomApplicationProxyURL(feed.FetchViaProxy)
-	requestBuilder.IgnoreTLSErrors(feed.AllowSelfSignedCertificates)
-	requestBuilder.DisableHTTP2(feed.DisableHTTP2)
+	requestBuilder := fetcher.NewRequestBuilder().
+		WithUserAgent(feed.UserAgent, config.Opts.HTTPClientUserAgent()).
+		WithCookie(feed.Cookie, feed.FeedURL).
+		WithTimeout(config.Opts.HTTPClientTimeout()).
+		WithProxyRotator(proxyrotator.ProxyRotatorInstance).
+		WithCustomFeedProxyURL(feed.ProxyURL).
+		WithCustomApplicationProxyURL(config.Opts.HTTPClientProxyURL()).
+		UseCustomApplicationProxyURL(feed.FetchViaProxy).
+		IgnoreTLSErrors(feed.AllowSelfSignedCertificates).
+		DisableHTTP2(feed.DisableHTTP2)
 
 	// Processing older entries first ensures that their creation timestamp is lower than newer entries.
 	for _, entry := range slices.Backward(feed.Entries) {
@@ -72,7 +72,10 @@ func ProcessFeedEntries(store *storage.Storage, feed *model.Feed, userID int64, 
 			slog.String("feed_url", feed.FeedURL),
 		)
 
-		if filter.IsBlockedEntry(blockRules, allowRules, feed, entry) {
+		// Keep rules that reference the reading time cannot be decided yet: the
+		// reading time is only computed after scraping, rewriting and sanitizing,
+		// so those rules are applied by the post-processing pass below.
+		if filter.IsBlockedEntryBeforeScraping(blockRules, allowRules, feed, entry) {
 			slog.Debug("Entry is blocked by filter rules",
 				slog.Int64("user_id", user.ID),
 				slog.String("entry_url", entry.URL),
@@ -181,16 +184,16 @@ func ProcessEntryWebPage(feed *model.Feed, entry *model.Entry, user *model.User)
 	startTime := time.Now()
 	entry.URL = rewrite.RewriteEntryURL(feed, entry)
 
-	requestBuilder := fetcher.NewRequestBuilder()
-	requestBuilder.WithUserAgent(feed.UserAgent, config.Opts.HTTPClientUserAgent())
-	requestBuilder.WithCookie(feed.Cookie)
-	requestBuilder.WithTimeout(config.Opts.HTTPClientTimeout())
-	requestBuilder.WithProxyRotator(proxyrotator.ProxyRotatorInstance)
-	requestBuilder.WithCustomFeedProxyURL(feed.ProxyURL)
-	requestBuilder.WithCustomApplicationProxyURL(config.Opts.HTTPClientProxyURL())
-	requestBuilder.UseCustomApplicationProxyURL(feed.FetchViaProxy)
-	requestBuilder.IgnoreTLSErrors(feed.AllowSelfSignedCertificates)
-	requestBuilder.DisableHTTP2(feed.DisableHTTP2)
+	requestBuilder := fetcher.NewRequestBuilder().
+		WithUserAgent(feed.UserAgent, config.Opts.HTTPClientUserAgent()).
+		WithCookie(feed.Cookie, feed.FeedURL).
+		WithTimeout(config.Opts.HTTPClientTimeout()).
+		WithProxyRotator(proxyrotator.ProxyRotatorInstance).
+		WithCustomFeedProxyURL(feed.ProxyURL).
+		WithCustomApplicationProxyURL(config.Opts.HTTPClientProxyURL()).
+		UseCustomApplicationProxyURL(feed.FetchViaProxy).
+		IgnoreTLSErrors(feed.AllowSelfSignedCertificates).
+		DisableHTTP2(feed.DisableHTTP2)
 
 	webpageBaseURL, extractedContent, scraperErr := scraper.ScrapeWebsite(
 		requestBuilder,

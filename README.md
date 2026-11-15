@@ -92,7 +92,7 @@ Features
 
 ### Integrations
 
-- 25+ integrations with third-party services: [Apprise](https://github.com/caronc/apprise), [Betula](https://sr.ht/~bouncepaw/betula/), [Cubox](https://cubox.cc/), [Discord](https://discord.com/), [Espial](https://github.com/jonschoning/espial), [Instapaper](https://www.instapaper.com/), [LinkAce](https://www.linkace.org/), [Linkding](https://github.com/sissbruecker/linkding), [LinkTaco](https://linktaco.com), [LinkWarden](https://linkwarden.app/), [Matrix](https://matrix.org), [Notion](https://www.notion.com/), [Ntfy](https://ntfy.sh/), [Nunux Keeper](https://keeper.nunux.org/), [Pinboard](https://pinboard.in/), [Pushover](https://pushover.net), [RainDrop](https://raindrop.io/), [Readeck](https://readeck.org/en/), [Readwise Reader](https://readwise.io/read), [RssBridge](https://rss-bridge.org/), [Shaarli](https://github.com/shaarli/Shaarli), [Shiori](https://github.com/go-shiori/shiori), [Slack](https://slack.com/), [Telegram](https://telegram.org), [Wallabag](https://www.wallabag.org/), etc.
+- 25+ integrations with third-party services: [Apprise](https://github.com/caronc/apprise), [Betula](https://sr.ht/~bouncepaw/betula/), [Cubox](https://cubox.cc/), [Discord](https://discord.com/), [Espial](https://github.com/jonschoning/espial), [Gotify](https://gotify.net/), [Instapaper](https://www.instapaper.com/), [LinkAce](https://www.linkace.org/), [Linkding](https://github.com/sissbruecker/linkding), [LinkTaco](https://linktaco.com), [LinkWarden](https://linkwarden.app/), [Matrix](https://matrix.org), [Notion](https://www.notion.com/), [Ntfy](https://ntfy.sh/), [Nunux Keeper](https://keeper.nunux.org/), [Pinboard](https://pinboard.in/), [Pushover](https://pushover.net), [RainDrop](https://raindrop.io/), [Readeck](https://readeck.org/en/), [Readwise Reader](https://readwise.io/read), [RssBridge](https://rss-bridge.org/), [Shaarli](https://github.com/shaarli/Shaarli), [Shiori](https://github.com/go-shiori/shiori), [Slack](https://slack.com/), [Telegram](https://telegram.org), [Wallabag](https://www.wallabag.org/), etc.
 - Bookmarklet for subscribing to websites directly from any web browser.
 - Webhooks for real-time notifications or custom integrations.
 - Compatibility with existing mobile applications using the Fever or Google Reader API.
@@ -123,7 +123,7 @@ Features
 - Compatible only with modern browsers.
 - Adheres to the [Twelve-Factor App](https://12factor.net/) methodology.
 - Provides official Debian/RPM packages and pre-built binaries.
-- Publishes a Docker image to Docker Hub, GitHub Registry, and Quay.io Registry, with ARM architecture support.
+- Publishes a Docker image to Docker Hub, GitHub Registry, and Quay.io Registry, with ARM and RISC-V architecture support.
 - Uses a limited amount of third-party go dependencies
 - Has a comprehensive testsuite, with both unit tests and integration tests.
 - Only uses a couple of MB of memory and a negligible amount of CPU, even with several hundreds of feeds.

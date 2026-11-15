@@ -59,6 +59,12 @@ func (c *cache) set(normalizedURL string, links []DiscussionLink, ttl time.Durat
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
+	// Never memoize a nil slice: a cache hit must answer the same list as the
+	// first response, and a nil slice would be serialized as null instead of [].
+	if links == nil {
+		links = []DiscussionLink{}
+	}
+
 	// Evict expired entries if we're at capacity.
 	if len(c.entries) >= maxSize {
 		now := time.Now()
@@ -101,7 +107,9 @@ func normalizeURL(rawURL string) string {
 	u.Scheme = strings.ToLower(u.Scheme)
 	u.Host = strings.ToLower(u.Host)
 	u.Fragment = ""
+	u.RawFragment = ""
 	u.Path = strings.TrimRight(u.Path, "/")
+	u.RawPath = ""
 
 	// Strip UTM tracking parameters only — other params may be legitimate.
 	q := u.Query()
@@ -112,5 +120,23 @@ func normalizeURL(rawURL string) string {
 	}
 	u.RawQuery = q.Encode()
 
-	return u.String()
+	if u.Scheme == "" || u.Host == "" {
+		return u.String()
+	}
+
+	// Rebuild the URL by hand instead of calling u.String(): String() re-escapes
+	// the path, which would turn literal spaces into %20 and send the providers
+	// a different URL than the one the entry declares. Only the fragment, the
+	// trailing slashes and the tracking parameters are stripped.
+	var b strings.Builder
+	b.WriteString(u.Scheme)
+	b.WriteString("://")
+	b.WriteString(u.Host)
+	b.WriteString(u.Path)
+	if u.RawQuery != "" {
+		b.WriteString("?")
+		b.WriteString(u.RawQuery)
+	}
+
+	return b.String()
 }

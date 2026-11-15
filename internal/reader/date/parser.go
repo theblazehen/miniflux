@@ -312,6 +312,8 @@ var replacer = strings.NewReplacer(
 	"Thurs,", "Thu,",
 	"Thur,", "Thu,",
 )
+var losAngelesLocation, _ = time.LoadLocation("America/Los_Angeles")
+var newYorkLocation, _ = time.LoadLocation("America/New_York")
 
 // Parse parses a given date string using a large
 // list of commonly found feed date formats.
@@ -325,7 +327,7 @@ func Parse(rawInput string) (t time.Time, err error) {
 		return time.Unix(timestamp, 0), nil
 	}
 
-	processedInput := replacer.Replace(rawInput)
+	processedInput := normalizeRFC3339Separators(replacer.Replace(rawInput))
 
 	for _, layout := range dateFormatsLocalTimesOnly {
 		if t, err = parseLocalTimeDates(layout, processedInput); err == nil {
@@ -342,6 +344,22 @@ func Parse(rawInput string) (t time.Time, err error) {
 	return t, fmt.Errorf(`date parser: failed to parse date "%s"`, rawInput)
 }
 
+// normalizeRFC3339Separators upper-cases the "t" separator and the "z" time zone
+// designator of RFC 3339 date-times. RFC 3339 section 5.6 allows them to be
+// lower case, but time.Parse only accepts upper case.
+func normalizeRFC3339Separators(value string) string {
+	if len(value) < 11 || value[4] != '-' || value[7] != '-' || (value[10] != 't' && value[10] != 'T') {
+		return value
+	}
+
+	value = value[:10] + "T" + value[11:]
+	if strings.HasSuffix(value, "z") {
+		value = value[:len(value)-1] + "Z"
+	}
+
+	return value
+}
+
 // According to Golang documentation:
 //
 // RFC822, RFC850, and RFC1123 formats should be applied only to local times.
@@ -352,9 +370,9 @@ func parseLocalTimeDates(layout, ds string) (t time.Time, err error) {
 
 	// Workaround for dates that don't use GMT.
 	if strings.HasSuffix(ds, "PST") || strings.HasSuffix(ds, "PDT") {
-		loc, _ = time.LoadLocation("America/Los_Angeles")
+		loc = losAngelesLocation
 	} else if strings.HasSuffix(ds, "EST") || strings.HasSuffix(ds, "EDT") {
-		loc, _ = time.LoadLocation("America/New_York")
+		loc = newYorkLocation
 	}
 
 	return time.ParseInLocation(layout, ds, loc)

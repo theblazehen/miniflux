@@ -5,6 +5,7 @@ package storage // import "miniflux.app/v2/internal/storage"
 
 import (
 	"database/sql"
+	"errors"
 	"fmt"
 
 	"golang.org/x/crypto/bcrypt"
@@ -37,13 +38,14 @@ func (s *Storage) UserByFeverToken(token string) (*model.User, error) {
 		LEFT JOIN
 			integrations ON integrations.user_id=users.id
 		WHERE
-			integrations.fever_enabled='t' AND lower(integrations.fever_token)=lower($1)
+			integrations.fever_enabled='t' AND
+			sha256(convert_to(lower(integrations.fever_token), 'UTF8')) = sha256(convert_to(lower($1), 'UTF8'))
 	`
 
 	var user model.User
 	err := s.db.QueryRow(query, token).Scan(&user.ID, &user.Username, &user.IsAdmin, &user.Timezone)
 	switch {
-	case err == sql.ErrNoRows:
+	case errors.Is(err, sql.ErrNoRows):
 		return nil, nil
 	case err != nil:
 		return nil, fmt.Errorf("store: unable to fetch user: %v", err)
@@ -62,11 +64,11 @@ func (s *Storage) GoogleReaderUserCheckPassword(username, password string) error
 		FROM
 			integrations
 		WHERE
-			integrations.googlereader_enabled='t' AND integrations.googlereader_username=$1
+			integrations.googlereader_enabled='t' AND integrations.googlereader_username=$1 AND integrations.googlereader_password <> ''
 	`
 
 	err := s.db.QueryRow(query, username).Scan(&hash)
-	if err == sql.ErrNoRows {
+	if errors.Is(err, sql.ErrNoRows) {
 		return fmt.Errorf(`store: unable to find this user: %s`, username)
 	} else if err != nil {
 		return fmt.Errorf(`store: unable to fetch user: %v`, err)
@@ -92,11 +94,11 @@ func (s *Storage) GoogleReaderUserGetIntegration(username string) (*model.Integr
 		FROM
 			integrations
 		WHERE
-			integrations.googlereader_enabled='t' AND integrations.googlereader_username=$1
+			integrations.googlereader_enabled='t' AND integrations.googlereader_username=$1 AND integrations.googlereader_password <> ''
 	`
 
 	err := s.db.QueryRow(query, username).Scan(&integration.UserID, &integration.GoogleReaderEnabled, &integration.GoogleReaderUsername, &integration.GoogleReaderPassword)
-	if err == sql.ErrNoRows {
+	if errors.Is(err, sql.ErrNoRows) {
 		return &integration, fmt.Errorf(`store: unable to find this user: %s`, username)
 	} else if err != nil {
 		return &integration, fmt.Errorf(`store: unable to fetch user: %v`, err)
@@ -230,7 +232,11 @@ func (s *Storage) Integration(userID int64) (*model.Integration, error) {
 			linktaco_org_slug,
 			linktaco_tags,
 			linktaco_visibility,
-			archiveorg_enabled
+			archiveorg_enabled,
+			gotify_enabled,
+			gotify_url,
+			gotify_token,
+			gotify_priority
 		FROM
 			integrations
 		WHERE
@@ -360,9 +366,13 @@ func (s *Storage) Integration(userID int64) (*model.Integration, error) {
 		&integration.LinktacoTags,
 		&integration.LinktacoVisibility,
 		&integration.ArchiveorgEnabled,
+		&integration.GotifyEnabled,
+		&integration.GotifyURL,
+		&integration.GotifyToken,
+		&integration.GotifyPriority,
 	)
 	switch {
-	case err == sql.ErrNoRows:
+	case errors.Is(err, sql.ErrNoRows):
 		return &integration, nil
 	case err != nil:
 		return &integration, fmt.Errorf(`store: unable to fetch integration row: %v`, err)
@@ -497,9 +507,13 @@ func (s *Storage) UpdateIntegration(integration *model.Integration) error {
 			linktaco_visibility=$118,
 			archiveorg_enabled=$119,
 			linkwarden_collection_id=$120,
-			readeck_push_enabled=$121
+			readeck_push_enabled=$121,
+			gotify_enabled=$122,
+			gotify_url=$123,
+			gotify_token=$124,
+			gotify_priority=$125
 		WHERE
-			user_id=$122
+			user_id=$126
 	`
 	_, err := s.db.Exec(
 		query,
@@ -624,6 +638,10 @@ func (s *Storage) UpdateIntegration(integration *model.Integration) error {
 		integration.ArchiveorgEnabled,
 		integration.LinkwardenCollectionID,
 		integration.ReadeckPushEnabled,
+		integration.GotifyEnabled,
+		integration.GotifyURL,
+		integration.GotifyToken,
+		integration.GotifyPriority,
 		integration.UserID,
 	)
 
