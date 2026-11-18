@@ -75,3 +75,12 @@ why = {text = "inferred from the fork's commits: fix: run EntryReadingTime filte
 decision = "keep"
 evidence = {commits = ["21cd873f484aa720ce6b8e28a9ad222404b5e177", "982e5425843ce82fd316ae28790e5061e5e3ec4f"], patch_ids = ["9930d34df936604ac7313565ef8e8e6dc6ba8d2d", "a94393812d95ce1629cca940228e0bcf4eaf079f"], paths = ["internal/reader/filter/filter.go", "internal/reader/processor/processor.go", "internal/reader/processor/reading_time.go"]}
 notes = "found by RepoSteward run repo-20261112T134703Z-0401 (its obligations L9)"
+
+[[feature]]
+id = "fix-sync-make-upstream-s-requirement"
+title = "fix(sync): make upstream's requirement checks pass after the merge"
+behavior = "fix(sync): make upstream's requirement checks pass after the merge"
+why = {text = "inferred from the fork's commits: fix(sync): make upstream's requirement checks pass after the merge", source = "inferred"}
+decision = "keep"
+evidence = {commits = ["0b46d51f290185411ae84e6198c9286190b8ad5c"], patch_ids = ["caa00a53664eedef08e4dd43389a815f0bfc15c3"], paths = ["internal/integration/gotify/gotify_test.go", "internal/http/client/client.go", "internal/http/client/client_test.go", "internal/integration/gotify/gotify.go"]}
+notes = "found by RepoSteward run repo-20261118T062228Z-ae70"
