@@ -1,23 +1,28 @@
-{"run": "miniflux-20261118-062103-8daf", "left": "1fcb6a4f1b069a24d12312760dc2c5dd3901d3a4", "right": "b31f7867f4a1ad9b4abfcebd376c94cecf5f1942", "commit": "b8e5cc84ab741bf18fb1f3303b7621106b21e362", "at": "2026-11-18T08:42:58Z", "fork": "theblazehen/miniflux", "branch": "main", "upstream": "https://github.com/miniflux/v2.git", "upstream_branch": "main"}
+{"run": "miniflux-20261118-062103-8daf", "left": "1fcb6a4f1b069a24d12312760dc2c5dd3901d3a4", "right": "b31f7867f4a1ad9b4abfcebd376c94cecf5f1942", "commit": "b8e5cc84ab741bf18fb1f3303b7621106b21e362", "at": "2026-11-18T09:08:23Z", "fork": "theblazehen/miniflux", "branch": "main", "upstream": "https://github.com/miniflux/v2.git", "upstream_branch": "main"}
 
 # RepoSteward report: main x refs/remotes/upstream/main
 
 - Verdict: **30 of 30 obligations verified on 6d0646cda5d7; 2 upstream obligations far from your changes, not checked (the build and upstream's own tests cover them); carried from run repo-20261112T134703Z-0401: 27 obligations, 27 of them verified by their checks run on 6d0646cda5d7, 11 preserved (both parents have them); X14 fixed a pre-existing bug in left (L8); X13 fixed a pre-existing bug in left (L9); suspect checks (probe to rewrite, not product failures): c644; clauses dropped with reasons: L1.2 (same on both parents), L1.6 (same on both parents), L4.6 (same on both parents), L5.5 (same on both parents), L8.5 (same on both parents), L9.6 (same on both parents), R1.5 (same on both parents), X3.4 (duplicate of R8.6), R12.4 (same on both parents), R13.2 (same on both parents), R13.4 (same on both parents), R13.5 (same on both parents), R16.4 (same on both parents); build pass on 6d0646cda5d7; suite pass on 6d0646cda5d7**.
+
+## What the run tried on its failing obligations
+
+- ci:Javascript Linter: fixed: it fails on your fork too; RepoSteward fixed your line in a commit of its own
 
 - Incremental on run `repo-20261112T134703Z-0401` (base result `bfb13ae5ea18`): upstream `fb043227ef6a`..`b31f7867f4a1` (1 commit), 0 new fork commits, 2 files changed. The fork contains the base result (its pull request was merged).
 - Carried from run `repo-20261112T134703Z-0401`: 27 obligations of 21 untouched features, with 190 checks re-run on this run's parents and merge (nothing below counts a run from the base).
 - Far from your changes now, carried unchecked: 2 upstream obligations of run `repo-20261112T134703Z-0401` (R2, R11).
 
 - Result: `main`: verified on `6d0646cda5d76cdcc545431449ab8d54e25d908c` (build pass; suite pass; fork tests: 12 run, all that pass on left pass; upstream tests: 1 run, all that pass on right pass); inventory recorded in `b8e5cc84ab741bf18fb1f3303b7621106b21e362` (`.reposteward/features.toml`, the branch head); a merge of left `1fcb6a4f1b06` and right `b31f7867f4a1`.
-- Commits: merge `6d0646cda5d7`, latest `6d0646cda5d7`.
+- Commits: merge `6d0646cda5d7`, latest `45348bea6e8b`.
 - Obligations on `6d0646cda5d7`: 2 far, 30 verified
 - Upstream changes your code relies on: 1 in 1 of your functions, all checked. Upstream changes near yours: 13, all checked. Far from your changes (2 behaviours; no path within 2 steps and no test touching both sides): covered by upstream's own tests (1 of 1 pass on the merge). Links found in a SCIP code index (type-resolved). Code indexes: your fork Go: scip-go 0.2.9 (RepoSteward's), dependencies resolved; your fork Python: scip-python 0.6.8 (RepoSteward's), dependencies not resolved (not installed: the tree's own code is indexed); your fork TypeScript: scip-typescript 0.6.2 (RepoSteward's), dependencies not resolved (no package.json); upstream Go: scip-go 0.2.9 (RepoSteward's), dependencies resolved; upstream Python: scip-python 0.6.8 (RepoSteward's), dependencies not resolved (not installed: the tree's own code is indexed); upstream TypeScript: scip-typescript 0.6.2 (RepoSteward's), dependencies not resolved (no package.json).
   - `internal/urllib/url.go`: checked because your NewClientWithOptions → IsNonPublicIP → isNonPublicAddr, changed upstream in b31f7867f4
+- Failures found: 1 (1 fork feature).
 - Clause coverage: 177 of 177 clauses checked (100%).
 - First thorough check of 2 clauses carried from an earlier run (run repo-20261112T134703Z-0401 had no check for them).
-- Checks kept: 217; decisions recorded: 1.
-- Model calls: 1500 (2210931 input, 50715136 cache-read, 746060 output tokens), cost $0.00.
-- Wall time: 136.0 min.
+- Checks kept: 217; decisions recorded: 2.
+- Model calls: 1516 (2237024 input, 50863104 cache-read, 749224 output tokens), cost $0.00.
+- Wall time: 164.2 min.
 
 ## Obligations on `6d0646cda5d7`
 
@@ -291,29 +296,36 @@ while [ "$(jobs -rp | wc -l)" -ge 16 ]; do wait -n; done
 { ( echo 'RS_FORKTESTS go internal/reader/filter	["TestIsReadingTimeMatchingPattern", "TestMatchesRule"]'; ( go test -count=1 -json -coverpkg=./... -coverprofile="${RS_SCRATCH:-${TMPDIR:-/tmp}}/coverage/go-3.out" -run '^(TestIsReadingTimeMatchingPattern|TestMatchesRule)$' ./internal/reader/filter ) 2>&1; echo "RS_FORKTESTS_EXIT $?" ) > "$rs_d/3" 2>&1; grep -q "^RS_FORKTESTS_EXIT [1-9]" "$rs_d/3" && echo 'go internal/reader/filter' >> "$rs_d/failed"; until mkdir "$rs_d/lock" 2>/dev/null; do sleep 0.05; done; cat "$rs_d/3"; rmdir "$rs_d/lock"; } &
 while [ "$(jobs -rp | wc -l)" -ge 16 ]; do wait -n; done
 { ( echo 'RS_FORKTESTS go internal/template	["TestQueryStringPercentEncoded"]'; ( go test -count=1 -json -coverpkg=./... -coverprofile="${RS_SCRATCH:-${TMPDIR:-/tmp}}/coverage/go-4.out" -run '^(TestQueryStringPercentEncoded)$' ./internal/template ) 2>&1; echo "RS_FORKTESTS_EXIT $?" ) > "$rs_d/4" 2>&1; grep -q "^RS_FORKTESTS_EXIT [1-9]" "$rs_d/4" && echo 'go internal/template' >> "$rs_d/failed"; until mkdir "$rs_d/lock" 2>/dev/null; do sleep 0.05; done; cat "$rs_d/4"; rmdir "$rs_d/lock"; } &
-wait; rs_rc=0; if [ -s "$rs_d/failed" ]; then rs_rc=1; echo "RS_FORKTESTS_FAILED $(wc -l < "$rs_d/failed") of 5 units: $(sort "$rs_d/failed" | paste -sd, -)"; fi; rm -rf "$rs_d"; exit $rs_rc`: left `1fcb6a4f1b06` pass, merged `6d0646cda5d7` pass; every merged commit: `6d0646cda5d7` pass
+wait; rs_rc=0; if [ -s "$rs_d/failed" ]; then rs_rc=1; echo "RS_FORKTESTS_FAILED $(wc -l < "$rs_d/failed") of 5 units: $(sort "$rs_d/failed" | paste -sd, -)"; fi; rm -rf "$rs_d"; exit $rs_rc`: left `1fcb6a4f1b06` pass, merged `6d0646cda5d7` pass; every merged commit: `6d0646cda5d7` pass, `45348bea6e8b` pass
 - `upstream-tests` `rs_d=$(mktemp -d "${RS_SCRATCH:-${TMPDIR:-/tmp}}/rs-tests.XXXXXX")
 mkdir -p "${RS_SCRATCH:-${TMPDIR:-/tmp}}/coverage"
 while [ "$(jobs -rp | wc -l)" -ge 16 ]; do wait -n; done
 { ( echo 'RS_FORKTESTS go internal/urllib	["TestIsNonPublicIP"]'; ( go test -count=1 -json -coverpkg=./... -coverprofile="${RS_SCRATCH:-${TMPDIR:-/tmp}}/coverage/go-0.out" -run '^(TestIsNonPublicIP)$' ./internal/urllib ) 2>&1; echo "RS_FORKTESTS_EXIT $?" ) > "$rs_d/0" 2>&1; grep -q "^RS_FORKTESTS_EXIT [1-9]" "$rs_d/0" && echo 'go internal/urllib' >> "$rs_d/failed"; until mkdir "$rs_d/lock" 2>/dev/null; do sleep 0.05; done; cat "$rs_d/0"; rmdir "$rs_d/lock"; } &
-wait; rs_rc=0; if [ -s "$rs_d/failed" ]; then rs_rc=1; echo "RS_FORKTESTS_FAILED $(wc -l < "$rs_d/failed") of 1 units: $(sort "$rs_d/failed" | paste -sd, -)"; fi; rm -rf "$rs_d"; exit $rs_rc`: right `b31f7867f4a1` pass, merged `6d0646cda5d7` pass; every merged commit: `6d0646cda5d7` pass
-- `build` `make && ( if command -v go >/dev/null 2>&1; then go test -count=1 -vet=off -run '^$' -exec true ./...; else echo "[reposteward] tests not compiled: no go on PATH"; fi )`: left `1fcb6a4f1b06` pass, right `b31f7867f4a1` pass, merged `6d0646cda5d7` pass; every merged commit: `6d0646cda5d7` pass
-- `suite` `make test`: left `1fcb6a4f1b06` pass, right `b31f7867f4a1` pass, merged `6d0646cda5d7` pass; every merged commit: `6d0646cda5d7` pass
+wait; rs_rc=0; if [ -s "$rs_d/failed" ]; then rs_rc=1; echo "RS_FORKTESTS_FAILED $(wc -l < "$rs_d/failed") of 1 units: $(sort "$rs_d/failed" | paste -sd, -)"; fi; rm -rf "$rs_d"; exit $rs_rc`: right `b31f7867f4a1` pass, merged `6d0646cda5d7` pass; every merged commit: `6d0646cda5d7` pass, `45348bea6e8b` pass
+- `build` `make && ( if command -v go >/dev/null 2>&1; then go test -count=1 -vet=off -run '^$' -exec true ./...; else echo "[reposteward] tests not compiled: no go on PATH"; fi )`: left `1fcb6a4f1b06` pass, right `b31f7867f4a1` pass, merged `6d0646cda5d7` pass; every merged commit: `6d0646cda5d7` pass, `45348bea6e8b` pass
+- `suite` `make test`: left `1fcb6a4f1b06` pass, right `b31f7867f4a1` pass, merged `6d0646cda5d7` pass; every merged commit: `6d0646cda5d7` pass, `45348bea6e8b` pass
 
 ## Heavy jobs
 
-- 1019 jobs (961 check runs, 34 worker commands); largest peak 2916 MiB of a 65536 MiB limit; final concurrency 52; 0 killed by memory, retried alone; 0.0 min waiting for a slot.
+- 1320 jobs (1254 check runs, 35 worker commands); largest peak 5682 MiB of a 65536 MiB limit; final concurrency 97; 0 killed by memory, retried alone; 0.0 min waiting for a slot.
 
 ## Phase budgets
 
 - obligations (8% share): 36 calls, 5.6 min, $0.00.
 - checks (12% share): 142 calls, 29.2 min, $0.00.
 - integrate (55% share): 0 calls, 1.6 min, $0.00.
-- verify (25% share): 1322 calls, 97.1 min, $0.00.
+- verify (25% share): 1338 calls, 125.3 min, $0.00.
 
 ## Decisions
 
 - d1 `.reposteward/features.toml` all: **rewrite**. product bookkeeping: the fork feature inventory (existing entries as written, the run's features and the owner's decisions added)
+- d2 `internal/ui/static/js/app.js` initializeDiscussionLinks discussion label conditional (lines 1334-1336): **rewrite**. Preserve L2's exact discussion-label selection and rendering while moving the ternary operators to the preceding lines to satisfy JSHint W014; only formatting changes, no behavior changes.
+
+## Other side's lines reverted by fix rounds
+
+Fix-round hunks that replaced lines only the other side wrote, kept because an obligation of the side named (whose citations touch the file) grounds them; check that each is what that obligation needs.
+
+- `45348bea6e8b`: `internal/ui/static/js/app.js:1334` (left's lines replaced, grounded by the deep fix of ci:Javascript Linter)
 
 ## Lead notes (claims, not records)
 
