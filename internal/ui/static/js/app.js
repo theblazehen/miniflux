@@ -1331,9 +1331,9 @@ function initializeDiscussionLinks() {
                 container.style.display = "";
 
                 discussions.forEach((d, i) => {
-                    const name = d.source === "reddit" && d.community
-                        ? `r/${d.community}`
-                        : (sourceNames[d.source] || d.source);
+                    const name = d.source === "reddit" && d.community ?
+                        `r/${d.community}` :
+                        (sourceNames[d.source] || d.source);
                     const a = document.createElement("a");
                     a.href = d.url;
                     a.target = "_blank";
